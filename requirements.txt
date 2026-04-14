@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sse-starlette
+openai
+azure-identity
+pandas
+openpyxl
+jinja2
+python-multipart
+websockets

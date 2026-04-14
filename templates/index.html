@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Phase 1: Configuration -->
+<div id="phase-config" class="phase active">
+    <!-- Auth Status -->
+    <div id="auth-status" class="auth-status none">
+        <div class="auth-dot"></div>
+        <span>Checking authentication...</span>
+    </div>
+
+    <!-- Manual Credentials -->
+    <div class="card">
+        <div class="collapsible-header" onclick="toggleCollapse(this)">
+            <span class="arrow">&#9654;</span>
+            <span>Manual Credentials (optional)</span>
+        </div>
+        <div class="collapsible-content">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="api-key" placeholder="Enter Azure OpenAI API key">
+                </div>
+                <div class="form-group">
+                    <label>API Version</label>
+                    <input type="text" id="api-version" value="{{ default_api_version }}">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Region Configuration -->
+    <div class="card">
+        <div class="card-title">Region Configuration</div>
+
+        <div class="tab-bar" id="region-tab-bar">
+            <div class="tab active" data-tab="discover" onclick="switchRegionTab('discover', this)">Auto Discover</div>
+            <div class="tab" data-tab="manual" onclick="switchRegionTab('manual', this)">Manual Entry</div>
+        </div>
+
+        <!-- Auto Discover mode -->
+        <div id="tab-discover" class="tab-content">
+            <div class="discover-status" id="discover-status">
+                <span class="spinner"></span>&nbsp; Discovering Azure AI resources...
+            </div>
+            <div class="discover-list" id="discover-list"></div>
+        </div>
+
+        <!-- Manual mode -->
+        <div id="tab-manual" class="tab-content" style="display:none">
+            <div class="form-group">
+                <label>Endpoint URL</label>
+                <div style="display:flex;gap:0.5rem">
+                    <input type="text" id="manual-endpoint" placeholder="https://my-resource.cognitiveservices.azure.com/"
+                           style="flex:1" onkeydown="if(event.key==='Enter'){addManualRegion();event.preventDefault();}">
+                    <button class="btn btn-primary btn-sm" onclick="addManualRegion()">Add</button>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top:1rem">
+            <label>Added Regions (<span id="region-count">0</span>)</label>
+            <div class="region-list" id="region-list"></div>
+        </div>
+    </div>
+
+    <!-- Model Selection -->
+    <div class="card">
+        <div class="card-title">Model Selection <span id="model-selected-count" style="font-size:0.8rem;font-weight:400;color:var(--text-secondary)"></span></div>
+        <div class="tab-bar" id="model-tab-bar">
+            {% for group in models.keys() %}
+            <div class="tab{% if loop.first %} active{% endif %}" onclick="switchModelTab('{{ loop.index0 }}', this)">{{ group }}</div>
+            {% endfor %}
+            <div class="tab" onclick="switchModelTab('custom', this)">Custom</div>
+        </div>
+        <div id="model-checkboxes">
+            {% for group, model_list in models.items() %}
+            <div class="model-tab-panel" data-model-tab="{{ loop.index0 }}" style="{% if not loop.first %}display:none{% endif %}">
+                <div class="checkbox-group">
+                    {% for model in model_list %}
+                    <label class="checkbox-label">
+                        <input type="checkbox" value="{{ model }}" onchange="this.parentElement.classList.toggle('checked', this.checked); updateModelCount();">
+                        {{ model }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+            <div class="model-tab-panel" data-model-tab="custom" style="display:none">
+                <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap" id="custom-models-area">
+                    <div style="display:flex;gap:0.5rem;flex:1;min-width:250px">
+                        <input type="text" id="custom-model-input" placeholder="Enter deployment name, e.g. my-gpt4"
+                               style="flex:1" onkeydown="if(event.key==='Enter'){addCustomModel();event.preventDefault();}">
+                        <button class="btn btn-outline btn-sm" onclick="addCustomModel()">+ Add</button>
+                    </div>
+                </div>
+                <div class="checkbox-group" id="custom-model-tags" style="margin-top:0.5rem"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Parameters -->
+    <div class="card">
+        <div class="card-title">Test Parameters</div>
+        <div class="form-group">
+            <label>Mode</label>
+            <div class="tab-bar" id="mode-tab-bar">
+                <div class="tab active" onclick="switchMode('benchmark', this)">Benchmark</div>
+                <div class="tab" onclick="switchMode('monitor', this)">Continuous Monitor</div>
+            </div>
+        </div>
+        <div id="monitor-params" style="display:none">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Interval (seconds)</label>
+                    <input type="number" id="monitor-interval" value="30" min="5" max="300">
+                </div>
+                <div class="form-group">
+                    <label>Duration (seconds)</label>
+                    <input type="number" id="monitor-duration" value="600" min="30" max="7200">
+                </div>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>API Type</label>
+            <div class="checkbox-group" id="api-type-group">
+                <label class="checkbox-label checked">
+                    <input type="checkbox" value="chat" checked onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                    Chat Completions
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" value="responses" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                    Responses API
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" value="embeddings" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                    Embeddings
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" value="tts" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                    TTS (Audio)
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" value="whisper" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                    Whisper (STT)
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" value="image" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                    Image (DALL-E)
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" value="realtime" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                    Realtime
+                </label>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Iterations (1-10)</label>
+                <input type="number" id="iterations" value="{{ default_iterations }}" min="1" max="10">
+            </div>
+            <div class="form-group">
+                <label>Rounds (1-10)</label>
+                <input type="number" id="rounds" value="1" min="1" max="10">
+            </div>
+            <div class="form-group">
+                <label>Concurrency (1-20)</label>
+                <input type="number" id="concurrency" value="5" min="1" max="20">
+            </div>
+            <div class="form-group">
+                <label>Max Tokens (50-500)</label>
+                <input type="number" id="max-tokens" value="{{ default_max_tokens }}" min="50" max="500">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Reasoning Effort</label>
+                <div class="checkbox-group" id="reasoning-effort-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" value="" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                        None
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" value="low" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                        Low
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" value="medium" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                        Medium
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" value="high" onchange="this.parentElement.classList.toggle('checked', this.checked)">
+                        High
+                    </label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Reasoning Summary</label>
+                <select id="reasoning-summary">
+                    <option value="">Off</option>
+                    <option value="auto">Auto</option>
+                    <option value="concise">Concise</option>
+                    <option value="detailed">Detailed</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>System Prompt</label>
+                <textarea id="system-prompt" rows="2">You are a helpful assistant.</textarea>
+            </div>
+            <div class="form-group">
+                <label>User Prompt</label>
+                <textarea id="user-prompt" rows="2">Explain the concept of cloud computing in a few sentences.</textarea>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <div class="toggle-wrapper">
+                    <div class="toggle active" id="streaming-toggle" onclick="this.classList.toggle('active')"></div>
+                    <label style="margin:0">Streaming (measures TTFT)</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <div class="toggle-wrapper">
+                    <div class="toggle active" id="warmup-toggle" onclick="this.classList.toggle('active')"></div>
+                    <label style="margin:0">Warm-up (exclude cold start)</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <div class="toggle-wrapper">
+                    <div class="toggle" id="cache-toggle" onclick="this.classList.toggle('active')"></div>
+                    <label style="margin:0">Test Prompt Caching</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button class="btn btn-primary" id="start-btn" onclick="startBenchmark()" style="width:100%;padding:0.8rem;font-size:1rem">
+        Start Benchmark
+    </button>
+</div>
+
+<!-- Phase 2: Running -->
+<div id="phase-running" class="phase">
+    <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span><span class="spinner"></span>&nbsp; Running Benchmark</span>
+            <button class="btn btn-outline btn-sm" id="stop-btn" style="display:none" onclick="stopBenchmark()">Stop</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-text">
+                <span id="progress-message">Starting...</span>
+                <span id="progress-pct">0%</span>
+            </div>
+        </div>
+
+        <div class="table-wrapper" style="margin-top:1rem">
+            <table id="live-table">
+                <thead>
+                    <tr>
+                        <th>Round</th>
+                        <th>Region</th>
+                        <th>Model</th>
+                        <th>API</th>
+                        <th>Reasoning</th>
+                        <th>Iter</th>
+                        <th>TTFT (ms)</th>
+                        <th>Latency (ms)</th>
+                        <th>TPS</th>
+                        <th>Status</th>
+                        <th>Request ID</th>
+                    </tr>
+                </thead>
+                <tbody id="live-tbody"></tbody>
+            </table>
+        </div>
+        <div class="chart-card" id="chart-monitor-live" style="display:none;margin-top:1rem"></div>
+    </div>
+</div>
+
+<!-- Phase 3: Results -->
+<div id="phase-results" class="phase">
+    <!-- Summary -->
+    <div class="summary-grid" id="summary-grid"></div>
+
+    <!-- Export -->
+    <div class="export-bar">
+        <button class="btn btn-outline" onclick="downloadExport('csv')">Export CSV</button>
+        <button class="btn btn-secondary" onclick="downloadExport('xlsx')">Export Excel</button>
+        <button class="btn btn-outline" onclick="resetToConfig()">New Test</button>
+    </div>
+
+    <!-- Charts -->
+    <div class="chart-grid">
+        <div class="chart-card full-width" id="chart-ttft"></div>
+        <div class="chart-card full-width" id="chart-latency"></div>
+        <div class="chart-card full-width" id="chart-tps"></div>
+        <div class="chart-card full-width" id="chart-ttft-percentiles"></div>
+        <div class="chart-card full-width" id="chart-latency-breakdown" style="display:none"></div>
+        <div class="chart-card full-width" id="chart-network" style="display:none"></div>
+        <div class="chart-card full-width" id="chart-heatmap"></div>
+        <div class="chart-card full-width" id="chart-round-trend" style="display:none"></div>
+        <div class="chart-card full-width" id="chart-cache" style="display:none"></div>
+    </div>
+
+    <!-- Detail table -->
+    <div class="card">
+        <div class="card-title">Detailed Results</div>
+        <div class="table-wrapper">
+            <table id="result-table">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable('result-table', 0)">Round</th>
+                        <th onclick="sortTable('result-table', 1)">Region</th>
+                        <th onclick="sortTable('result-table', 2)">Model</th>
+                        <th onclick="sortTable('result-table', 3)">API</th>
+                        <th onclick="sortTable('result-table', 4)">Reasoning</th>
+                        <th onclick="sortTable('result-table', 5)">TTFB</th>
+                        <th onclick="sortTable('result-table', 6)">Avg TTFT</th>
+                        <th onclick="sortTable('result-table', 7)">P50 TTFT</th>
+                        <th onclick="sortTable('result-table', 8)">P95 TTFT</th>
+                        <th onclick="sortTable('result-table', 9)">P99 TTFT</th>
+                        <th onclick="sortTable('result-table', 10)">Avg Latency</th>
+                        <th onclick="sortTable('result-table', 11)">Avg TPS</th>
+                        <th onclick="sortTable('result-table', 12)">Error Rate</th>
+                    </tr>
+                </thead>
+                <tbody id="result-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+{% endblock %}
