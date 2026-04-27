@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
-import type { DiscoveredResource } from "@/types/benchmark";
+import type { DiscoveredResource, DiscoverResponse } from "@/types/benchmark";
 
 interface UseDiscoveryReturn {
   resources: DiscoveredResource[];
@@ -18,11 +18,18 @@ export function useDiscovery(): UseDiscoveryReturn {
   useEffect(() => {
     let cancelled = false;
 
-    apiFetch<DiscoveredResource[]>("/api/resources/discover")
+    // Backend now returns { resources, error } (always 200) so that the UI
+    // can gracefully fall back to manual entry. Still tolerate the legacy
+    // bare-array response from older backends.
+    apiFetch<DiscoverResponse | DiscoveredResource[]>("/api/resources/discover")
       .then((data) => {
-        if (!cancelled) {
+        if (cancelled) return;
+        if (Array.isArray(data)) {
           setResources(data);
           setError(null);
+        } else {
+          setResources(data.resources ?? []);
+          setError(data.error ?? null);
         }
       })
       .catch((err) => {

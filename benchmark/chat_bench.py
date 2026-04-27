@@ -10,6 +10,7 @@ from auth import last_request_id
 from config import MAX_COMPLETION_TOKENS_MODELS
 from benchmark.metrics import SingleCallMetrics
 from benchmark.network_timing import get_current_timings, measure_dns
+from benchmark.streaming import classify_error, extract_cached_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,7 @@ async def run_chat_completion(
                 if chunk.usage:
                     metrics.prompt_tokens = chunk.usage.prompt_tokens
                     metrics.completion_tokens = chunk.usage.completion_tokens
-                    details = getattr(chunk.usage, "prompt_tokens_details", None)
-                    if details:
-                        metrics.cached_tokens = getattr(details, "cached_tokens", 0) or 0
+                    metrics.cached_tokens = extract_cached_tokens(chunk.usage)
 
             metrics.total_latency_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
@@ -96,9 +95,7 @@ async def run_chat_completion(
             if resp.usage:
                 metrics.prompt_tokens = resp.usage.prompt_tokens
                 metrics.completion_tokens = resp.usage.completion_tokens
-                details = getattr(resp.usage, "prompt_tokens_details", None)
-                if details:
-                    metrics.cached_tokens = getattr(details, "cached_tokens", 0) or 0
+                metrics.cached_tokens = extract_cached_tokens(resp.usage)
 
             if metrics.completion_tokens > 0 and metrics.total_latency_ms > 0:
                 metrics.tokens_per_second = round(
@@ -118,11 +115,13 @@ async def run_chat_completion(
             metrics.tcp_connect_ms = nt.tcp_connect_ms
             metrics.tls_ms = nt.tls_ms
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         metrics.error = f"Timeout after {timeout}s"
+        metrics.error_category = classify_error(e)
         metrics.total_latency_ms = timeout * 1000
     except Exception as e:
         metrics.error = str(e)
-        logger.warning(f"Chat completion error: {e}")
+        metrics.error_category = classify_error(e)
+        logger.warning(f"Chat completion error ({metrics.error_category}): {e}")
 
     return metrics

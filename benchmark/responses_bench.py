@@ -9,6 +9,7 @@ from openai import AsyncAzureOpenAI
 from auth import last_request_id
 from benchmark.metrics import SingleCallMetrics
 from benchmark.network_timing import get_current_timings
+from benchmark.streaming import classify_error, extract_cached_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +66,7 @@ async def run_responses_api(
                     if hasattr(response, "usage") and response.usage:
                         metrics.prompt_tokens = getattr(response.usage, "input_tokens", 0) or 0
                         metrics.completion_tokens = getattr(response.usage, "output_tokens", 0) or 0
-                        input_details = getattr(response.usage, "input_tokens_details", None)
-                        if input_details:
-                            metrics.cached_tokens = getattr(input_details, "cached_tokens", 0) or 0
+                        metrics.cached_tokens = extract_cached_tokens(response.usage)
 
             metrics.total_latency_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
@@ -90,9 +89,7 @@ async def run_responses_api(
             if hasattr(resp, "usage") and resp.usage:
                 metrics.prompt_tokens = getattr(resp.usage, "input_tokens", 0) or 0
                 metrics.completion_tokens = getattr(resp.usage, "output_tokens", 0) or 0
-                input_details = getattr(resp.usage, "input_tokens_details", None)
-                if input_details:
-                    metrics.cached_tokens = getattr(input_details, "cached_tokens", 0) or 0
+                metrics.cached_tokens = extract_cached_tokens(resp.usage)
 
             if metrics.completion_tokens > 0 and metrics.total_latency_ms > 0:
                 metrics.tokens_per_second = round(
@@ -112,11 +109,13 @@ async def run_responses_api(
             metrics.tcp_connect_ms = nt.tcp_connect_ms
             metrics.tls_ms = nt.tls_ms
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         metrics.error = f"Timeout after {timeout}s"
+        metrics.error_category = classify_error(e)
         metrics.total_latency_ms = timeout * 1000
     except Exception as e:
         metrics.error = str(e)
-        logger.warning(f"Responses API error: {e}")
+        metrics.error_category = classify_error(e)
+        logger.warning(f"Responses API error ({metrics.error_category}): {e}")
 
     return metrics

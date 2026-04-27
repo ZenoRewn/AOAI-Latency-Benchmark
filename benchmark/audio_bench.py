@@ -10,6 +10,7 @@ from openai import AsyncAzureOpenAI
 from auth import last_request_id
 from benchmark.metrics import SingleCallMetrics
 from benchmark.network_timing import get_current_timings
+from benchmark.streaming import classify_error
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,14 @@ async def run_tts(
             nt.compute()
             metrics.tcp_connect_ms = nt.tcp_connect_ms
             metrics.tls_ms = nt.tls_ms
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         metrics.error = "Timeout"
+        metrics.error_category = classify_error(e)
         logger.warning("TTS call timed out: %s iter=%d", deployment, iteration)
     except Exception as e:
         metrics.error = str(e)[:200]
-        logger.warning("TTS call failed: %s iter=%d: %s", deployment, iteration, e)
+        metrics.error_category = classify_error(e)
+        logger.warning("TTS call failed (%s): %s iter=%d: %s", metrics.error_category, deployment, iteration, e)
     return metrics
 
 
@@ -72,10 +75,12 @@ async def run_whisper(
             nt.compute()
             metrics.tcp_connect_ms = nt.tcp_connect_ms
             metrics.tls_ms = nt.tls_ms
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         metrics.error = "Timeout"
+        metrics.error_category = classify_error(e)
         logger.warning("Whisper call timed out: %s iter=%d", deployment, iteration)
     except Exception as e:
         metrics.error = str(e)[:200]
-        logger.warning("Whisper call failed: %s iter=%d: %s", deployment, iteration, e)
+        metrics.error_category = classify_error(e)
+        logger.warning("Whisper call failed (%s): %s iter=%d: %s", metrics.error_category, deployment, iteration, e)
     return metrics

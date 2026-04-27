@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aoai-benchmark-config
+  namespace: aoai-benchmark
+data:
+  # Comma-separated allowed origins for CORS. Since FastAPI also serves the
+  # frontend in-process, you usually only need the Ingress hostname here.
+  ALLOWED_ORIGINS: "https://aoai-benchmark.example.com"
+  LOG_LEVEL: "INFO"
+  # Optional — restrict resource discovery to specific subscriptions.
+  # Leave empty to let the SDK enumerate all subscriptions the MI can see.
+  AZURE_SUBSCRIPTION_ID: ""

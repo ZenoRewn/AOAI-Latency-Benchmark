@@ -148,7 +148,6 @@ export default function TTFTChart({ results }: TTFTChartProps) {
                     <Cell
                       key={idx}
                       fill={CHART_COLORS[idx % CHART_COLORS.length]}
-                      radius={[7, 7, 0, 0]}
                     />
                   ))}
                 <LabelList

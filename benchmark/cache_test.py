@@ -57,8 +57,11 @@ async def run_cache_test(
         logger.warning(f"Cache test had errors: call1={call1.error}, call2={call2.error}")
         return CacheTestResult()
 
+    # Use call2's cached_tokens — populated via the multi-path extract_cached_tokens
+    # in chat_bench / responses_bench, so stray SDK/API-version shapes don't zero it out.
+    cached = call2.cached_tokens
     prompt_tokens = call2.prompt_tokens or 1
-    hit_rate = round(call2.cached_tokens / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
+    hit_rate = round(cached / prompt_tokens, 4) if prompt_tokens > 0 else 0.0
     speedup = 0.0
     if call1.total_latency_ms > 0:
         speedup = round(
@@ -68,7 +71,7 @@ async def run_cache_test(
     return CacheTestResult(
         miss_latency_ms=call1.total_latency_ms,
         hit_latency_ms=call2.total_latency_ms,
-        cached_tokens=call2.cached_tokens,
+        cached_tokens=cached,
         prompt_tokens=prompt_tokens,
         hit_rate=hit_rate,
         speedup_pct=speedup,

@@ -146,7 +146,6 @@ export default function LatencyChart({ results }: LatencyChartProps) {
                     <Cell
                       key={idx}
                       fill={CHART_COLORS[idx % CHART_COLORS.length]}
-                      radius={[7, 7, 0, 0]}
                     />
                   ))}
                 <LabelList

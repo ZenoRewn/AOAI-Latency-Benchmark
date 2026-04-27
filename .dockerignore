@@ -1,0 +1,38 @@
+# VCS
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+.env
+.pytest_cache
+
+# Node / Next.js (build happens inside the image)
+frontend/node_modules
+frontend/.next
+frontend/out
+
+# Local artifacts
+*.xlsx
+*.csv
+*.log
+
+# Editor / tooling
+.vscode
+.idea
+.DS_Store
+.claude
+
+# Unrelated workspace content
+aoai-monitor-resources
+
+# K8s manifests are not needed at build time
+k8s
+
+# Docs & plans
+*.md

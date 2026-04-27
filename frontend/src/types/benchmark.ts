@@ -89,10 +89,23 @@ export interface DiscoveredResource {
   name: string;
   endpoint: string;
   region: string;
+  kind?: string;
+  subscription_id?: string;
+}
+
+export interface DiscoverResponse {
+  resources: DiscoveredResource[];
+  error: string | null;
 }
 
 export interface AuthStatus {
-  method: "azure_cli" | "env_vars" | "none";
+  method:
+    | "azure_cli"
+    | "workload_identity"
+    | "managed_identity"
+    | "service_principal"
+    | "env_vars"
+    | "none";
   detail: string;
 }
 

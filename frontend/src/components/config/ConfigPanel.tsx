@@ -270,6 +270,12 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
         </span>
         {auth.loading ? (
           <Badge variant="secondary">Checking...</Badge>
+        ) : auth.method === "workload_identity" ? (
+          <Badge variant="default">AKS Workload Identity</Badge>
+        ) : auth.method === "managed_identity" ? (
+          <Badge variant="default">Managed Identity</Badge>
+        ) : auth.method === "service_principal" ? (
+          <Badge variant="default">Service Principal</Badge>
         ) : auth.method === "azure_cli" ? (
           <Badge variant="default">Azure CLI</Badge>
         ) : auth.method === "env_vars" ? (

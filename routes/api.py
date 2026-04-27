@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import uuid
 import logging
 import shutil
@@ -12,7 +13,10 @@ from pydantic import BaseModel
 
 from auth import detect_auth_method
 from benchmark.engine import BenchmarkEngine
-from config import MODELS, DEFAULT_API_VERSION, DEFAULT_ITERATIONS, DEFAULT_MAX_TOKENS
+from config import (
+    MODELS, DEFAULT_API_VERSION, DEFAULT_ITERATIONS, DEFAULT_MAX_TOKENS,
+    BENCHMARK_PRESETS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,7 @@ async def get_config():
         "default_api_version": DEFAULT_API_VERSION,
         "default_iterations": DEFAULT_ITERATIONS,
         "default_max_tokens": DEFAULT_MAX_TOKENS,
+        "presets": BENCHMARK_PRESETS,
     }
 
 
@@ -67,17 +72,92 @@ async def auth_status():
 
 @router.get("/resources/discover")
 async def discover_resources():
-    """Discover Azure AI Services / OpenAI resources via Azure CLI."""
+    """Discover Azure AI Services / OpenAI resources.
+
+    Priority:
+    1. azure-mgmt-cognitiveservices SDK with DefaultAzureCredential
+       (works in AKS Workload Identity, Managed Identity, local az login).
+    2. Fallback to `az` CLI if the SDK path fails and `az` is on PATH
+       (covers dev machines without azure-mgmt-* installed).
+
+    Returns 200 with `{resources: [...], error: ...}` so the frontend can
+    show a friendly "please input manually" hint instead of erroring out.
+    """
+    sdk_resources, sdk_error = await _discover_via_sdk()
+    if sdk_resources is not None:
+        return {"resources": sdk_resources, "error": None}
+
+    az_resources, az_error = await _discover_via_az_cli()
+    if az_resources is not None:
+        return {"resources": az_resources, "error": None}
+
+    return {
+        "resources": [],
+        "error": (
+            "Auto-discovery unavailable. "
+            f"SDK: {sdk_error or 'n/a'}. CLI: {az_error or 'n/a'}. "
+            "Please enter endpoint manually."
+        ),
+    }
+
+
+async def _discover_via_sdk() -> tuple[list[dict] | None, str | None]:
+    """Use azure-mgmt-cognitiveservices to list AOAI / AIServices accounts."""
+    try:
+        from azure.identity.aio import DefaultAzureCredential
+        from azure.mgmt.resource.subscriptions.aio import SubscriptionClient
+        from azure.mgmt.cognitiveservices.aio import CognitiveServicesManagementClient
+    except Exception as e:
+        return None, f"SDK import failed: {e}"
+
+    try:
+        credential = DefaultAzureCredential()
+    except Exception as e:
+        return None, f"Credential init failed: {e}"
+
+    try:
+        resources: list[dict] = []
+        sub_ids = [s for s in (os.environ.get("AZURE_SUBSCRIPTION_ID") or "").split(",") if s.strip()]
+        if not sub_ids:
+            async with SubscriptionClient(credential) as sub_client:
+                async for sub in sub_client.subscriptions.list():
+                    sub_ids.append(sub.subscription_id)
+
+        for sub_id in sub_ids:
+            async with CognitiveServicesManagementClient(credential, sub_id) as cs_client:
+                async for acct in cs_client.accounts.list():
+                    kind = (acct.kind or "").strip()
+                    if kind not in ("OpenAI", "AIServices"):
+                        continue
+                    endpoint = None
+                    if acct.properties and getattr(acct.properties, "endpoint", None):
+                        endpoint = acct.properties.endpoint
+                    resources.append({
+                        "name": acct.name,
+                        "endpoint": endpoint,
+                        "region": acct.location,
+                        "kind": kind,
+                        "subscription_id": sub_id,
+                    })
+        return resources, None
+    except Exception as e:
+        logger.debug(f"SDK discover failed: {e}")
+        return None, str(e)
+    finally:
+        try:
+            await credential.close()
+        except Exception:
+            pass
+
+
+async def _discover_via_az_cli() -> tuple[list[dict] | None, str | None]:
+    """Legacy fallback: shell out to `az` CLI."""
     az_path = shutil.which("az")
     if not az_path:
-        raise HTTPException(
-            status_code=503,
-            detail="Azure CLI (az) is not installed or not in PATH",
-        )
-
+        return None, "az CLI not found on PATH"
     query = (
         "[?kind=='AIServices' || kind=='OpenAI']"
-        ".{name:name, endpoint:properties.endpoint, region:location}"
+        ".{name:name, endpoint:properties.endpoint, region:location, kind:kind}"
     )
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -88,18 +168,25 @@ async def discover_resources():
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Azure CLI command timed out")
-
+        return None, "az CLI timed out"
     if proc.returncode != 0:
-        detail = stderr.decode(errors="replace").strip() or "az command failed"
-        raise HTTPException(status_code=502, detail=detail)
-
+        return None, (stderr.decode(errors="replace").strip() or "az command failed")
     try:
-        resources = json.loads(stdout.decode())
+        return json.loads(stdout.decode()), None
     except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="Failed to parse az output")
+        return None, "failed to parse az output"
 
-    return resources
+
+@router.get("/version")
+async def get_version():
+    """Lightweight version / auth state endpoint for on-call and smoke tests."""
+    auth_info = await detect_auth_method()
+    return {
+        "app": "aoai-latency-benchmark",
+        "version": os.getenv("APP_VERSION", "dev"),
+        "commit": os.getenv("GIT_COMMIT", "unknown"),
+        "auth": auth_info,
+    }
 
 
 @router.post("/benchmark/start")

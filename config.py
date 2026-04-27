@@ -26,7 +26,8 @@ MODELS = {
     ],
     "Open Source": ["gpt-oss-120b", "gpt-oss-20b"],
     "Model Router": ["model-router"],
-    "Embeddings": ["text-embedding-3-large", "text-embedding-3-small", "text-embedding-ada-002"],
+    "Embeddings": ["text-embedding-3-large", "text-embedding-3-small"],
+    "Legacy (Deprecated)": ["text-embedding-ada-002"],
     "Image": ["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini", "dall-e-3"],
     "Video": ["sora-2", "sora"],
     "Audio & Speech": [
@@ -48,6 +49,51 @@ DEFAULT_USER_PROMPT = "Explain the concept of cloud computing in a few sentences
 # Reasoning options (GPT-5.x / o-Series)
 REASONING_EFFORT_OPTIONS = ["none", "low", "medium", "high"]
 REASONING_SUMMARY_OPTIONS = ["off", "auto", "concise", "detailed"]
+
+# Pre-canned benchmark presets surfaced to the UI so users can pick
+# common test profiles without hand-tuning every field.
+BENCHMARK_PRESETS = {
+    "fast_chat": {
+        "description": "Quick chat latency sanity check (non-reasoning)",
+        "api_types": ["chat"],
+        "iterations": 5,
+        "max_tokens": 64,
+        "streaming": True,
+        "reasoning_efforts": [],
+    },
+    "o_series_reasoning": {
+        "description": "o1/o3 reasoning models with high effort",
+        "api_types": ["chat"],
+        "iterations": 3,
+        "max_tokens": 512,
+        "streaming": True,
+        "reasoning_efforts": ["high"],
+    },
+    "gpt5_reasoning_sweep": {
+        "description": "GPT-5.x reasoning effort sweep (low/medium/high)",
+        "api_types": ["responses"],
+        "iterations": 3,
+        "max_tokens": 256,
+        "streaming": True,
+        "reasoning_efforts": ["low", "medium", "high"],
+    },
+    "cold_vs_warm": {
+        "description": "Compare first call (cold) vs warmed-up calls",
+        "api_types": ["chat"],
+        "iterations": 5,
+        "warmup": False,     # intentionally skip warmup so call #1 is cold
+        "max_tokens": 128,
+        "streaming": True,
+    },
+    "cache_hit": {
+        "description": "Prompt cache hit/miss latency comparison",
+        "api_types": ["chat"],
+        "iterations": 2,
+        "max_tokens": 128,
+        "test_cache": True,
+        "streaming": False,
+    },
+}
 
 # These model prefixes use max_completion_tokens instead of max_tokens in Chat API
 MAX_COMPLETION_TOKENS_MODELS = ("o1", "o3", "o4", "gpt-5", "codex-mini", "gpt-oss")

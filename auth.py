@@ -1,4 +1,14 @@
-"""Three-tier authentication: az login → environment variables → manual input."""
+"""Three-tier authentication: DefaultAzureCredential → env → manual input.
+
+On AKS with Workload Identity, DefaultAzureCredential picks up the federated
+pod identity automatically — no code change needed. The `method` label
+returned by detect_auth_method() tries to distinguish the concrete source
+(azure_cli / workload_identity / managed_identity) so the UI can surface it.
+
+Future extension point: if the frontend ever sends a user-bound AAD access
+token (via MSAL.js and an AAD App Registration), prepend a branch at the top
+of get_client() that uses `azure_ad_token=<token>` directly.
+"""
 
 import contextvars
 import os
@@ -24,14 +34,35 @@ async def _capture_request_id(response: httpx.Response) -> None:
         last_request_id.set(rid)
 
 
+def _classify_default_credential_source() -> tuple[str, str]:
+    """Guess which credential source inside DefaultAzureCredential is active.
+
+    Pure env-var heuristic — DefaultAzureCredential itself doesn't expose which
+    inner credential answered. Good enough for UI labelling.
+    """
+    # Workload Identity (AKS federated credential) — these env vars are injected
+    # by the workload-identity webhook when the Pod has the right annotations.
+    if os.environ.get("AZURE_FEDERATED_TOKEN_FILE") and os.environ.get("AZURE_CLIENT_ID"):
+        return "workload_identity", "AKS Workload Identity (federated token)"
+    # System-assigned / user-assigned Managed Identity via IMDS
+    if os.environ.get("IDENTITY_ENDPOINT") or os.environ.get("MSI_ENDPOINT"):
+        return "managed_identity", "Managed Identity (IMDS)"
+    # Service principal via env
+    if os.environ.get("AZURE_CLIENT_ID") and os.environ.get("AZURE_CLIENT_SECRET"):
+        return "service_principal", "Service Principal (AZURE_CLIENT_ID/SECRET)"
+    # Local developer
+    return "azure_cli", "Azure CLI / DefaultAzureCredential"
+
+
 async def detect_auth_method() -> dict:
     """Detect available authentication method.
 
     Returns dict with:
-        method: "azure_cli" | "env_vars" | "none"
+        method: "workload_identity" | "managed_identity" | "service_principal"
+              | "azure_cli" | "env_vars" | "none"
         detail: human-readable description
     """
-    # 1. Try DefaultAzureCredential (covers az login, managed identity, etc.)
+    # 1. Try DefaultAzureCredential (covers az login, MI, Workload Identity, etc.)
     try:
         from azure.identity.aio import DefaultAzureCredential
 
@@ -39,7 +70,8 @@ async def detect_auth_method() -> dict:
         token = await credential.get_token(TOKEN_SCOPE)
         await credential.close()
         if token:
-            return {"method": "azure_cli", "detail": "Azure CLI / DefaultAzureCredential"}
+            method, detail = _classify_default_credential_source()
+            return {"method": method, "detail": detail}
     except Exception as e:
         logger.debug(f"DefaultAzureCredential failed: {e}")
 
@@ -59,9 +91,12 @@ async def get_client(
 
     Priority:
     1. Explicit api_key parameter
-    2. DefaultAzureCredential (az login)
+    2. DefaultAzureCredential (az login / Workload Identity / Managed Identity)
     3. AZURE_OPENAI_API_KEY environment variable
     """
+    # Extension hook: if later we add per-user AAD tokens from the browser,
+    # accept an `aad_token` kwarg here and short-circuit with
+    #   AsyncAzureOpenAI(azure_ad_token=aad_token, ...)
     http_client = httpx.AsyncClient(
         transport=TimingTransport(),
         event_hooks={"response": [_capture_request_id]},
@@ -103,5 +138,5 @@ async def get_client(
 
     raise ValueError(
         "No authentication available. Provide an API key, set AZURE_OPENAI_API_KEY, "
-        "or login with 'az login'."
+        "or login with 'az login' / attach a Managed Identity."
     )

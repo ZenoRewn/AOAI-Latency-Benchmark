@@ -404,9 +404,20 @@ class BenchmarkEngine:
             elapsed += 0.5
 
     async def _guarded_call(self, semaphore, *args, **kwargs):
-        """Semaphore-guarded wrapper for _run_single_call."""
+        """Semaphore-guarded wrapper for _run_single_call.
+
+        Also measures `queue_wait_ms` — how long the coroutine waited for a slot.
+        Only meaningful when concurrency > 1 and helps diagnose whether latency
+        spikes come from client-side queuing vs server-side.
+        """
+        import time as _t
+        t_enqueue = _t.perf_counter()
         async with semaphore:
-            return await self._run_single_call(*args, **kwargs)
+            queue_wait_ms = round((_t.perf_counter() - t_enqueue) * 1000, 2)
+            metrics = await self._run_single_call(*args, **kwargs)
+            if queue_wait_ms > 0:
+                metrics.queue_wait_ms = queue_wait_ms
+            return metrics
 
     async def _run_single_call(
         self, api_type, client, model, endpoint,
@@ -467,13 +478,21 @@ class BenchmarkEngine:
                 "reasoning_effort": r.reasoning_effort,
                 "round": r.round,
                 "timestamp": r.timestamp,
+                "sample_count": r.sample_count,
+                "success_count": r.success_count,
                 "avg_ttft_ms": r.avg_ttft_ms,
                 "p50_ttft_ms": r.p50_ttft_ms,
+                "p90_ttft_ms": r.p90_ttft_ms,
                 "p95_ttft_ms": r.p95_ttft_ms,
                 "p99_ttft_ms": r.p99_ttft_ms,
                 "avg_latency_ms": r.avg_latency_ms,
+                "p50_latency_ms": r.p50_latency_ms,
+                "p90_latency_ms": r.p90_latency_ms,
+                "p95_latency_ms": r.p95_latency_ms,
+                "p99_latency_ms": r.p99_latency_ms,
                 "avg_tps": r.avg_tps,
                 "error_rate": r.error_rate,
+                "error_categories": ";".join(f"{k}={v}" for k, v in r.error_category_counts.items()),
                 "std_ttft_ms": r.std_ttft_ms,
                 "min_ttft_ms": r.min_ttft_ms,
                 "max_ttft_ms": r.max_ttft_ms,
@@ -486,6 +505,8 @@ class BenchmarkEngine:
                 "avg_ttfb_ms": r.avg_ttfb_ms,
                 "avg_token_gen_ms": r.avg_token_gen_ms,
                 "avg_backend_est_ms": r.avg_backend_est_ms,
+                "avg_queue_wait_ms": r.avg_queue_wait_ms,
+                "p95_queue_wait_ms": r.p95_queue_wait_ms,
                 "network_probe_ms": r.network_probe_ms,
             }
             if r.cache:
@@ -507,7 +528,9 @@ class BenchmarkEngine:
                 row["ttfb_ms"] = c.ttfb_ms
                 row["token_gen_ms"] = c.token_gen_ms
                 row["backend_est_ms"] = c.backend_est_ms
+                row["queue_wait_ms"] = c.queue_wait_ms
                 row["call_error"] = c.error
+                row["call_error_category"] = c.error_category
                 rows.append(row)
 
         return pd.DataFrame(rows) if rows else pd.DataFrame()

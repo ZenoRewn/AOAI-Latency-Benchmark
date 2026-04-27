@@ -1,0 +1,36 @@
+# NGINX Ingress example. For AGIC (Application Gateway Ingress Controller),
+# change `ingressClassName: nginx` -> `azure-application-gateway` and translate
+# `nginx.ingress.kubernetes.io/...` annotations to their AGIC equivalents
+# (e.g. `appgw.ingress.kubernetes.io/backend-path-prefix`).
+#
+# TLS uses cert-manager — if you're not running cert-manager, remove the
+# cert-manager annotation and the `tls:` block, and terminate TLS upstream.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aoai-benchmark
+  namespace: aoai-benchmark
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # SSE requires unbuffered proxying and long read timeouts.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - aoai-benchmark.example.com
+      secretName: aoai-benchmark-tls
+  rules:
+    - host: aoai-benchmark.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aoai-benchmark
+                port:
+                  name: http

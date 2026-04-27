@@ -13,7 +13,8 @@ Cross-region performance testing tool for Azure OpenAI Service. Measure TTFT (Ti
 - **Live dashboard** - Real-time progress with per-call metrics as they stream in
 - **Interactive charts** - TTFT bar charts, latency comparison, TPS, percentile distributions, heatmaps, round trends (powered by Plotly)
 - **Export** - Download results as CSV or Excel (with summary sheet)
-- **Flexible authentication** - Azure CLI (`az login`), environment variables, or manual API key input
+- **Flexible authentication** - Azure CLI (`az login`), AKS Workload Identity, Managed Identity, environment variables, or manual API key input
+- **Containerized + AKS-ready** - Multi-stage Dockerfile and Kustomize manifests in `k8s/`
 
 ## Project Structure
 
@@ -91,8 +92,12 @@ The application will start at **http://127.0.0.1:8088**.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | Web UI |
-| `GET` | `/api/auth/status` | Check authentication method |
-| `GET` | `/api/resources/discover` | Auto-discover Azure AI resources |
+| `GET` | `/healthz` | Liveness probe (always 200) |
+| `GET` | `/readyz` | Readiness probe — 200 when auth is resolvable, 503 otherwise |
+| `GET` | `/api/version` | App version + auth method (useful for on-call / smoke tests) |
+| `GET` | `/api/auth/status` | Check authentication method (`workload_identity` \| `managed_identity` \| `azure_cli` \| `env_vars` \| …) |
+| `GET` | `/api/resources/discover` | Auto-discover Azure AI resources (SDK first, falls back to `az` CLI) |
+| `GET` | `/api/config` | Models, defaults, and preset benchmark profiles |
 | `POST` | `/api/benchmark/start` | Start a benchmark run (returns `run_id`) |
 | `GET` | `/api/benchmark/{run_id}/stream` | SSE stream of progress and results |
 | `GET` | `/api/benchmark/{run_id}/results` | Get all results for a run |
@@ -131,6 +136,57 @@ The application will start at **http://127.0.0.1:8088**.
 | P50/P95/P99 TTFT | TTFT percentile distribution |
 | Error Rate | Percentage of failed calls |
 | Cache Hit Rate | Prompt caching effectiveness |
+
+## Docker
+
+Build a single self-contained image that bundles the FastAPI backend and the
+pre-built Next.js frontend (served from `/`).
+
+```bash
+docker build -t aoai-benchmark:local .
+docker run --rm -p 8088:8088 \
+    -e AZURE_OPENAI_API_KEY=<optional-fallback-key> \
+    aoai-benchmark:local
+# open http://localhost:8088
+```
+
+Environment variables the container honors:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `HOST` | `0.0.0.0` | Bind address |
+| `PORT` | `8088` | Listen port |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:8088,http://127.0.0.1:8088` | Comma-separated CORS origins |
+| `AZURE_OPENAI_API_KEY` | *(unset)* | Optional fallback key when no MI/CLI is available |
+| `AZURE_SUBSCRIPTION_ID` | *(unset)* | Restrict discovery to specific subscription(s) (comma-separated) |
+| `APP_VERSION` / `GIT_COMMIT` | *(unset)* | Surfaced on `/api/version` |
+
+## Deploy to Azure AKS
+
+The `k8s/` directory has a Kustomize-ready set of manifests. The key
+property: users don't paste Azure credentials — the pod authenticates to
+Azure OpenAI via **AKS Workload Identity**, so any user who opens the
+page is effectively using a pre-authorized identity.
+
+Short version:
+
+1. Enable Workload Identity on the cluster (`az aks update --enable-oidc-issuer --enable-workload-identity`).
+2. Build and push the image to ACR.
+3. Create a UAMI, assign **Cognitive Services User** on the target AOAI resource(s).
+4. Federate the UAMI to `system:serviceaccount:aoai-benchmark:aoai-benchmark-sa`.
+5. Fill in `REPLACE_WITH_UAMI_CLIENT_ID` and `REPLACE_WITH_IMAGE` and `kubectl apply -k k8s/`.
+
+Full step-by-step lives in [`k8s/README.md`](k8s/README.md).
+
+### Why "just read my local az login" does not work in AKS
+
+Browsers cannot read `~/.azure/` from the user's PC (sandbox), and the pod
+cannot read the client's environment either. Workload Identity achieves
+the same end result — zero client configuration — without relying on
+cross-boundary credential sharing. If you later need per-user identity
+(so usage counts against the individual user's AOAI quota), add an AAD
+App Registration + MSAL.js in the browser; the hook point is marked in
+`auth.py`.
 
 ## License
 

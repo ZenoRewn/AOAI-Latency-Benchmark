@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aoai-benchmark
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+# Override per cluster, e.g.:
+#   kubectl kustomize k8s/ \
+#     | sed 's|REPLACE_WITH_IMAGE:latest|myacr.azurecr.io/aoai-benchmark:v1|' \
+#     | sed 's|REPLACE_WITH_UAMI_CLIENT_ID|<uuid>|' \
+#     | kubectl apply -f -
+images:
+  - name: REPLACE_WITH_IMAGE
+    newName: myacr.azurecr.io/aoai-benchmark
+    newTag: latest

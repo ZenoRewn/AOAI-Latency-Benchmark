@@ -6,6 +6,7 @@ import logging
 import time
 
 from benchmark.metrics import SingleCallMetrics
+from benchmark.streaming import classify_error
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ async def run_realtime(
     except ImportError:
         metrics = SingleCallMetrics(iteration=iteration)
         metrics.error = "websockets package not installed"
+        metrics.error_category = "other"
         return metrics
 
     metrics = SingleCallMetrics(iteration=iteration)
@@ -48,6 +50,7 @@ async def run_realtime(
             headers["Authorization"] = f"Bearer {token.token}"
         except Exception as e:
             metrics.error = f"Auth failed: {e}"
+            metrics.error_category = "auth"
             return metrics
 
     try:
@@ -106,11 +109,13 @@ async def run_realtime(
                         metrics.error = msg.get("error", {}).get("message", "Unknown error")[:200]
                         break
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         metrics.error = "Timeout"
+        metrics.error_category = classify_error(e)
         logger.warning("Realtime call timed out: %s iter=%d", deployment, iteration)
     except Exception as e:
         metrics.error = str(e)[:200]
-        logger.warning("Realtime call failed: %s iter=%d: %s", deployment, iteration, e)
+        metrics.error_category = classify_error(e)
+        logger.warning("Realtime call failed (%s): %s iter=%d: %s", metrics.error_category, deployment, iteration, e)
 
     return metrics
