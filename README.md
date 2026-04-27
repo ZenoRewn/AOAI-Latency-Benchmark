@@ -160,6 +160,9 @@ Environment variables the container honors:
 | `AZURE_OPENAI_API_KEY` | *(unset)* | Optional fallback key when no MI/CLI is available |
 | `AZURE_SUBSCRIPTION_ID` | *(unset)* | Restrict discovery to specific subscription(s) (comma-separated) |
 | `APP_VERSION` / `GIT_COMMIT` | *(unset)* | Surfaced on `/api/version` |
+| `AAD_CLIENT_ID` | *(unset)* | Enables MSAL.js browser SSO when set to a SPA App Registration's client id |
+| `AAD_AUTHORITY` | `https://login.microsoftonline.com/organizations` | MSAL authority (change to `.../<tenant-id>` for single tenant) |
+| `AAD_SCOPES` | `https://cognitiveservices.azure.com/user_impersonation` | Comma-separated MSAL scopes |
 
 ## Deploy to Azure AKS
 
@@ -181,12 +184,20 @@ Full step-by-step lives in [`k8s/README.md`](k8s/README.md).
 ### Why "just read my local az login" does not work in AKS
 
 Browsers cannot read `~/.azure/` from the user's PC (sandbox), and the pod
-cannot read the client's environment either. Workload Identity achieves
-the same end result — zero client configuration — without relying on
-cross-boundary credential sharing. If you later need per-user identity
-(so usage counts against the individual user's AOAI quota), add an AAD
-App Registration + MSAL.js in the browser; the hook point is marked in
-`auth.py`.
+cannot read the client's environment either.
+
+There are two equivalent "zero-config" outcomes:
+- **Workload Identity** (default): every request uses the pod's Managed
+  Identity. Users don't sign in, but they also don't get per-user quota.
+- **MSAL.js browser SSO** (optional, opt-in): users click "Sign in with
+  Azure AD" once; the browser silently reuses their existing Entra ID
+  session to acquire an Azure OpenAI token, which the backend forwards to
+  AOAI. Usage runs under the user's identity and quota.
+
+To enable MSAL.js SSO, set `AAD_CLIENT_ID` in the ConfigMap to the
+application ID of a SPA App Registration (see [`k8s/README.md`](k8s/README.md)
+section 6 for the full `az ad` walkthrough). Leave empty to disable — the
+sign-in button then simply doesn't appear.
 
 ## License
 

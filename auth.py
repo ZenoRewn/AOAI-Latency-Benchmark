@@ -86,21 +86,32 @@ async def get_client(
     endpoint: str,
     api_version: str,
     api_key: str | None = None,
+    aad_token: str | None = None,
 ) -> AsyncAzureOpenAI:
     """Create an AsyncAzureOpenAI client with the best available auth.
 
     Priority:
+    0. Per-user AAD bearer token (from browser MSAL.js)
     1. Explicit api_key parameter
     2. DefaultAzureCredential (az login / Workload Identity / Managed Identity)
     3. AZURE_OPENAI_API_KEY environment variable
     """
-    # Extension hook: if later we add per-user AAD tokens from the browser,
-    # accept an `aad_token` kwarg here and short-circuit with
-    #   AsyncAzureOpenAI(azure_ad_token=aad_token, ...)
     http_client = httpx.AsyncClient(
         transport=TimingTransport(),
         event_hooks={"response": [_capture_request_id]},
     )
+
+    # 0. Per-user AAD bearer token from the frontend MSAL.js flow.
+    # The token has already been acquired against the Azure OpenAI scope,
+    # so we hand it to the SDK verbatim. Tokens are short-lived (~1h);
+    # a benchmark run longer than that should re-acquire in the browser.
+    if aad_token:
+        return AsyncAzureOpenAI(
+            azure_endpoint=endpoint,
+            azure_ad_token=aad_token,
+            api_version=api_version,
+            http_client=http_client,
+        )
 
     # 1. Explicit API key
     if api_key:

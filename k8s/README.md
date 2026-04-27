@@ -112,6 +112,68 @@ curl localhost:8088/readyz         # {"ready":true,"method":"workload_identity",
 curl localhost:8088/api/auth/status
 ```
 
+## 6. (Optional) Enable browser MSAL.js SSO (per-user identity)
+
+With Workload Identity, **every** request uses the pod's identity. If you
+want each user to authenticate with their own Entra ID and call AOAI under
+their own quota, register a small SPA App Registration and turn on MSAL.
+
+```bash
+APP_NAME=aoai-benchmark-spa
+PUBLIC_URL=https://bench.zeno.ink     # <-- your Ingress hostname
+
+# Create a multi-tenant SPA App Registration
+APP_ID=$(az ad app create \
+    --display-name "$APP_NAME" \
+    --sign-in-audience AzureADMultipleOrgs \
+    --query appId -o tsv)
+
+# Add a SPA redirect URI (browser-flow PKCE). The JSON form is deliberate —
+# `az ad app create` doesn't set SPA redirect URIs correctly otherwise.
+az rest --method PATCH \
+    --uri "https://graph.microsoft.com/v1.0/applications(appId='${APP_ID}')" \
+    --headers "Content-Type=application/json" \
+    --body "{\"spa\":{\"redirectUris\":[\"${PUBLIC_URL}\"]}}"
+
+# Grant the app permission to call Azure OpenAI on behalf of the user.
+# We look the "Azure Cognitive Services" API resource up dynamically so we
+# don't hard-code an appId that drifts.
+COGNITIVE_APP_ID=$(az ad sp list --filter "servicePrincipalNames/any(n:n eq 'https://cognitiveservices.azure.com')" \
+    --query "[0].appId" -o tsv)
+USER_IMPERSONATION=$(az ad sp show --id "$COGNITIVE_APP_ID" \
+    --query "oauth2PermissionScopes[?value=='user_impersonation'].id | [0]" -o tsv)
+
+az ad app permission add --id "$APP_ID" \
+    --api "$COGNITIVE_APP_ID" \
+    --api-permissions "${USER_IMPERSONATION}=Scope"
+
+# Optionally: admin-consent for YOUR home tenant so users don't see a
+# consent prompt on first sign-in. Requires Global/Application Admin.
+az ad app permission grant --id "$APP_ID" \
+    --api "$COGNITIVE_APP_ID" --scope user_impersonation
+
+echo "Set this in the ConfigMap:"
+echo "  AAD_CLIENT_ID=$APP_ID"
+```
+
+Then:
+
+```bash
+kubectl -n aoai-benchmark set env configmap/aoai-benchmark-config AAD_CLIENT_ID="$APP_ID"
+kubectl -n aoai-benchmark rollout restart deploy/aoai-benchmark
+```
+
+The UI will now show a **"Sign in with Azure AD"** button. Once a user
+signs in, the browser silently acquires an access token for Azure OpenAI
+and every benchmark request runs under their identity.
+
+### External-tenant guests
+
+Users from tenants other than yours can sign in (multi-tenant app), but
+their tenant admin will still need to approve the permission. The user
+sees a standard Microsoft consent screen on first sign-in — no action
+needed on our side.
+
 ## Notes
 
 - CORS: since FastAPI serves the Next.js static export in-process, there is
@@ -121,3 +183,6 @@ curl localhost:8088/api/auth/status
   Reader role — the page will simply prompt users to paste endpoints.
 - To rotate the image, re-push a new tag and:
   `kubectl -n aoai-benchmark set image deploy/aoai-benchmark app=<acr>.azurecr.io/aoai-benchmark:v2`
+- Auth priority inside the pod: explicit `Authorization: Bearer` header
+  (MSAL.js user token) → manual API key from the form → DefaultAzureCredential
+  (Workload Identity / Managed Identity) → `AZURE_OPENAI_API_KEY` env.

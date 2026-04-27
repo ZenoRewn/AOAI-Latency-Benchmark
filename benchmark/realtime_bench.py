@@ -18,6 +18,7 @@ async def run_realtime(
     api_version: str,
     timeout: int,
     iteration: int,
+    aad_token: str | None = None,
 ) -> SingleCallMetrics:
     """Measure Realtime API connection time and TTFT via WebSocket.
 
@@ -39,10 +40,13 @@ async def run_realtime(
     ws_url = f"wss://{host}/openai/realtime?api-version={api_version}&deployment={deployment}"
 
     headers = {}
-    if api_key:
+    if aad_token:
+        # Per-user AAD token from the browser MSAL flow
+        headers["Authorization"] = f"Bearer {aad_token}"
+    elif api_key:
         headers["api-key"] = api_key
     else:
-        # Try to get a token from azure-identity
+        # Fall back to pod identity / az login via DefaultAzureCredential
         try:
             from azure.identity import DefaultAzureCredential
             credential = DefaultAzureCredential()

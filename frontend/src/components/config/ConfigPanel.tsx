@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useDiscovery } from "@/hooks/useDiscovery";
+import { useMsal } from "@/hooks/useMsal";
 import {
   API_TYPE_OPTIONS,
   REASONING_EFFORT_OPTIONS,
@@ -56,6 +57,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const auth = useAuth();
+  const msal = useMsal();
   const discovery = useDiscovery();
 
   useEffect(() => {
@@ -264,11 +266,13 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-6">
       {/* ====== Auth Status ====== */}
-      <div className="bg-white shadow-sm rounded-xl border border-[#E8E4F0] p-5 flex items-center gap-3">
+      <div className="bg-white shadow-sm rounded-xl border border-[#E8E4F0] p-5 flex flex-wrap items-center gap-3">
         <span className="text-sm font-medium text-muted-foreground">
           Authentication
         </span>
-        {auth.loading ? (
+        {msal.signedIn ? (
+          <Badge variant="default">AAD SSO</Badge>
+        ) : auth.loading ? (
           <Badge variant="secondary">Checking...</Badge>
         ) : auth.method === "workload_identity" ? (
           <Badge variant="default">AKS Workload Identity</Badge>
@@ -283,8 +287,37 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
         ) : (
           <Badge variant="destructive">Not Configured</Badge>
         )}
-        {!auth.loading && (
+        {msal.signedIn && msal.account && (
+          <span className="text-xs text-muted-foreground truncate max-w-xs">
+            {msal.account.username}
+          </span>
+        )}
+        {!msal.signedIn && !auth.loading && (
           <span className="text-xs text-muted-foreground">{auth.detail}</span>
+        )}
+        {msal.enabled && !msal.signedIn && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            disabled={msal.signingIn}
+            onClick={msal.signIn}
+          >
+            {msal.signingIn ? "Signing in…" : "Sign in with Azure AD"}
+          </Button>
+        )}
+        {msal.signedIn && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onClick={msal.signOut}
+          >
+            Sign out
+          </Button>
+        )}
+        {msal.error && (
+          <span className="text-xs text-red-600 basis-full">{msal.error}</span>
         )}
       </div>
 

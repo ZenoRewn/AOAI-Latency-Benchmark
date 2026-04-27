@@ -7,7 +7,7 @@ import uuid
 import logging
 import shutil
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 
@@ -68,6 +68,41 @@ async def get_config():
 @router.get("/auth/status")
 async def auth_status():
     return await detect_auth_method()
+
+
+@router.get("/auth/msal-config")
+async def msal_config():
+    """MSAL.js bootstrap config for the frontend.
+
+    Only advertise MSAL to the browser when AAD_CLIENT_ID is set, otherwise
+    the UI shouldn't render a sign-in button at all.
+    """
+    client_id = os.environ.get("AAD_CLIENT_ID", "").strip()
+    if not client_id:
+        return {"enabled": False}
+
+    authority = os.environ.get(
+        "AAD_AUTHORITY", "https://login.microsoftonline.com/organizations"
+    )
+    scopes_raw = os.environ.get(
+        "AAD_SCOPES", "https://cognitiveservices.azure.com/user_impersonation"
+    )
+    scopes = [s.strip() for s in scopes_raw.split(",") if s.strip()]
+    return {
+        "enabled": True,
+        "client_id": client_id,
+        "authority": authority,
+        "scopes": scopes,
+    }
+
+
+def _extract_bearer(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.split(None, 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1].strip():
+        return parts[1].strip()
+    return None
 
 
 @router.get("/resources/discover")
@@ -190,22 +225,31 @@ async def get_version():
 
 
 @router.post("/benchmark/start")
-async def start_benchmark(config: BenchmarkConfig):
+async def start_benchmark(
+    config: BenchmarkConfig,
+    authorization: str | None = Header(default=None),
+):
     run_id = str(uuid.uuid4())[:8]
     engine = BenchmarkEngine()
     queue: asyncio.Queue = asyncio.Queue()
 
+    cfg = config.model_dump()
+    # Capture per-user AAD token (if the frontend signed in via MSAL).
+    # Only stays in memory for this run; never logged or exported.
+    aad_token = _extract_bearer(authorization)
+    if aad_token:
+        cfg["aad_token"] = aad_token
+
     runs[run_id] = {
         "engine": engine,
         "queue": queue,
-        "config": config.model_dump(),
+        "config": {k: v for k, v in cfg.items() if k != "aad_token"},  # redact
         "status": "running",
     }
 
-    # Start benchmark in background task
     async def run_and_queue():
         try:
-            async for event in engine.run(config.model_dump()):
+            async for event in engine.run(cfg):
                 await queue.put(event)
         except Exception as e:
             await queue.put({"type": "error", "message": str(e)})

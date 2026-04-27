@@ -79,6 +79,7 @@ class BenchmarkEngine:
         user_prompt = config.get("user_prompt", "Say hello.")
         test_cache = config.get("test_cache", False)
         api_key = config.get("api_key")
+        aad_token = config.get("aad_token")
         api_version = config.get("api_version", "2025-03-01-preview")
         reasoning_efforts = config.get("reasoning_efforts", [])
         reasoning_summary = config.get("reasoning_summary")
@@ -118,7 +119,7 @@ class BenchmarkEngine:
                 warmup_client = None
                 if needs_client:
                     try:
-                        warmup_client = await get_client(endpoint, api_version, api_key)
+                        warmup_client = await get_client(endpoint, api_version, api_key, aad_token=aad_token)
                     except Exception:
                         continue
                 for model in models:
@@ -167,7 +168,7 @@ class BenchmarkEngine:
                 client = None
                 if needs_client:
                     try:
-                        client = await get_client(endpoint, api_version, api_key)
+                        client = await get_client(endpoint, api_version, api_key, aad_token=aad_token)
                     except Exception as e:
                         yield {
                             "type": "error",
@@ -198,6 +199,7 @@ class BenchmarkEngine:
                                         api_key, api_version, i,
                                         effort_val, reasoning_summary, streaming,
                                         net_baseline,
+                                        aad_token=aad_token,
                                     )
                                 )
                                 task_keys.append((api_type, effort, i))
@@ -293,6 +295,7 @@ class BenchmarkEngine:
         system_prompt = config.get("system_prompt", "You are a helpful assistant.")
         user_prompt = config.get("user_prompt", "Say hello.")
         api_key = config.get("api_key")
+        aad_token = config.get("aad_token")
         api_version = config.get("api_version", "2025-03-01-preview")
         reasoning_efforts = config.get("reasoning_efforts", [])
         reasoning_summary = config.get("reasoning_summary")
@@ -309,7 +312,7 @@ class BenchmarkEngine:
             rn = region_info["name"]
             ep = region_info["endpoint"]
             try:
-                clients[rn] = (await get_client(ep, api_version, api_key), ep)
+                clients[rn] = (await get_client(ep, api_version, api_key, aad_token=aad_token), ep)
             except Exception as e:
                 yield {"type": "error", "message": f"Auth failed for {rn}: {e}", "region": rn}
 
@@ -347,6 +350,7 @@ class BenchmarkEngine:
                                 system_prompt, user_prompt, max_tokens, timeout,
                                 api_key, api_version, 1,
                                 effort_val, reasoning_summary, streaming, 0.0,
+                                aad_token=aad_token,
                             )
                             result.calls.append(call_metrics)
                             result.compute_aggregates()
@@ -425,6 +429,7 @@ class BenchmarkEngine:
         api_key, api_version, iteration,
         reasoning_effort=None, reasoning_summary=None,
         streaming=True, network_baseline_ms=0.0,
+        aad_token=None,
     ):
         if api_type == "responses":
             return await run_responses_api(
@@ -457,6 +462,7 @@ class BenchmarkEngine:
             return await run_realtime(
                 endpoint, model, api_key, api_version,
                 timeout, iteration=iteration,
+                aad_token=aad_token,
             )
         else:  # "chat" default
             return await run_chat_completion(
