@@ -12,6 +12,7 @@
 #   PLATFORM     Target platform. Default: linux/amd64 (works on AKS x86 pools).
 #                Set to "linux/arm64" or "linux/amd64,linux/arm64" for other pools.
 #   SKIP_LOGIN   If set, skip `az acr login`.
+#   SKIP_PUSH    If set, skip `docker push` (useful for local build-only test).
 #   SKIP_ROLLOUT If set, skip `kubectl set image` / `rollout status`.
 set -euo pipefail
 
@@ -42,7 +43,9 @@ if [[ -z "${SKIP_LOGIN:-}" ]]; then
   run az acr login -n "$ACR"
 fi
 
-run docker push "$IMAGE"
+if [[ -z "${SKIP_PUSH:-}" ]]; then
+  run docker push "$IMAGE"
+fi
 
 if [[ -z "${SKIP_ROLLOUT:-}" ]]; then
   run kubectl -n "$NAMESPACE" set image "deploy/${DEPLOY}" "${CONTAINER}=${IMAGE}"
