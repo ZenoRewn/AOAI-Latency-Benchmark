@@ -150,6 +150,37 @@ docker run --rm -p 8088:8088 \
 # open http://localhost:8088
 ```
 
+### Local dev with Auto Discovery (uses your `az login`)
+
+If you want Auto Discovery to list your own Azure OpenAI / AIServices
+resources when running the container locally, use the helper script:
+
+```bash
+az login                        # once, if not already logged in
+./scripts/run-local.sh          # build + run + smoke test
+# open http://localhost:8088
+./scripts/run-local.sh stop     # stop and clean up
+```
+
+What it does:
+
+1. Builds the image with `--build-arg INSTALL_AZ_CLI=true` so the Azure CLI
+   is present in the container. `DefaultAzureCredential`'s `AzureCliCredential`
+   shells out to `az`, which only works if `az` is on PATH inside the image.
+   The production build path (`build-and-deploy.sh`) omits this arg, so the
+   ACR image stays slim and relies on Workload Identity instead.
+2. Copies `~/.azure/` to `/tmp/aoai-azure-local/` with widened read/write
+   permissions (the originals stay at `600`). The MSAL token cache is
+   otherwise unreadable by the container user.
+3. Runs the container with that temp dir bind-mounted at `/root/.azure`
+   (and `--user 0`) so the in-container `az` can read tokens regardless of
+   host-side uid mapping.
+4. Waits for `/healthz`, then prints `/api/version` and
+   `/api/resources/discover` so you can confirm auth flowed through.
+
+`SKIP_BUILD=1 ./scripts/run-local.sh` skips the rebuild when you've only
+changed Python/TS code and the base image is already cached.
+
 Environment variables the container honors:
 
 | Var | Default | Purpose |
@@ -246,7 +277,8 @@ then simply doesn't appear.
 > read files from the user's laptop. Any "zero-config, uses my local az
 > login" experience on a remote deployment is — at best — the browser-session
 > coincidence above. If you want strict `~/.azure/`-backed auth, run the app
-> locally (`python app.py` or `docker run` with `-v ~/.azure:/home/appuser/.azure`)
+> locally with `python app.py` or `./scripts/run-local.sh` (see
+> [Local dev with Auto Discovery](#local-dev-with-auto-discovery-uses-your-az-login))
 > and skip AKS.
 
 ## License

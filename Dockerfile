@@ -14,7 +14,9 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Stage 2: Python backend + static frontend ----
-FROM python:3.12-slim AS runtime
+# Pin to bookworm so the Microsoft apt repo (bookworm main) is reachable
+# when INSTALL_AZ_CLI=true. Trixie has no azure-cli release file yet.
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -26,6 +28,23 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+
+# Optional: install azure-cli for local-dev images so DefaultAzureCredential
+# can fall through to AzureCliCredential when ~/.azure is bind-mounted.
+# Production images (AKS Workload Identity) leave this off — the prod path
+# doesn't need `az` on PATH.
+ARG INSTALL_AZ_CLI=false
+RUN if [ "$INSTALL_AZ_CLI" = "true" ]; then \
+      apt-get update \
+   && apt-get install -y --no-install-recommends gnupg lsb-release \
+   && curl -sL https://packages.microsoft.com/keys/microsoft.asc \
+        | gpg --dearmor -o /etc/apt/trusted.gpg.d/microsoft.gpg \
+   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $(lsb_release -cs) main" \
+        > /etc/apt/sources.list.d/azure-cli.list \
+   && apt-get update \
+   && apt-get install -y --no-install-recommends azure-cli \
+   && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
