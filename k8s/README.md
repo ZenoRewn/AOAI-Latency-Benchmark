@@ -118,6 +118,13 @@ With Workload Identity, **every** request uses the pod's identity. If you
 want each user to authenticate with their own Entra ID and call AOAI under
 their own quota, register a small SPA App Registration and turn on MSAL.
 
+> **What the user actually sees.** MSAL does **not** read `~/.azure/` on the
+> user's laptop — it uses the **browser's** existing Entra ID session cookie.
+> If they're already signed into Azure Portal in this browser, "Sign in with
+> Azure AD" is silent (no popup). If not, they see one Microsoft login
+> popup, then silent for ~1h. The signed-in account is whoever is logged into
+> *the browser*, which may differ from `az account show`.
+
 ```bash
 APP_NAME=aoai-benchmark-spa
 PUBLIC_URL=https://bench.zeno.ink     # <-- your Ingress hostname

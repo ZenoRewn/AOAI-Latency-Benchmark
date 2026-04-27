@@ -181,23 +181,46 @@ Short version:
 
 Full step-by-step lives in [`k8s/README.md`](k8s/README.md).
 
-### Why "just read my local az login" does not work in AKS
+### About user-side Azure credentials
 
-Browsers cannot read `~/.azure/` from the user's PC (sandbox), and the pod
-cannot read the client's environment either.
+> **MSAL.js does not read `~/.azure/` from the user's PC.** It relies on the
+> **browser's** existing Entra ID session cookies. That's a separate credential
+> store from the Azure CLI — two different places, two different mechanisms.
 
-There are two equivalent "zero-config" outcomes:
+Why it usually *feels* like "it just used my `az login`": most people run
+`az login` interactively through the browser, which incidentally leaves an
+active Microsoft session cookie in that browser. MSAL.js then reuses that
+cookie via silent SSO, so the user perceives zero clicks. It's convergence,
+not file-sharing.
+
+| Your state | First click on "Sign in with Azure AD" |
+|---|---|
+| Browser has an active Entra ID session (usual case) | Silent — no popup, logged in instantly |
+| No browser AAD session (incognito, new machine, device-code `az login`) | One Microsoft popup, then silent for ~1 h |
+| Browser is signed in as a different account than `az login` | MSAL uses the **browser's** account, not the CLI's |
+
+Either way, AOAI calls run under the **signed-in browser identity's** quota and
+RBAC — which is still per-user, just tracked via the browser's session rather
+than the CLI's refresh token.
+
+The two deployment modes:
+
 - **Workload Identity** (default): every request uses the pod's Managed
   Identity. Users don't sign in, but they also don't get per-user quota.
-- **MSAL.js browser SSO** (optional, opt-in): users click "Sign in with
-  Azure AD" once; the browser silently reuses their existing Entra ID
-  session to acquire an Azure OpenAI token, which the backend forwards to
-  AOAI. Usage runs under the user's identity and quota.
+- **MSAL.js browser SSO** (optional, opt-in): per-user identity as described
+  above. Usage runs under the signed-in user's AAD account.
 
-To enable MSAL.js SSO, set `AAD_CLIENT_ID` in the ConfigMap to the
-application ID of a SPA App Registration (see [`k8s/README.md`](k8s/README.md)
-section 6 for the full `az ad` walkthrough). Leave empty to disable — the
-sign-in button then simply doesn't appear.
+To enable MSAL.js SSO, set `AAD_CLIENT_ID` in the ConfigMap to the application
+ID of a SPA App Registration (see [`k8s/README.md`](k8s/README.md) section 6
+for the full `az ad` walkthrough). Leave empty to disable — the sign-in button
+then simply doesn't appear.
+
+> **Physical impossibility notice.** Neither the pod nor the browser can
+> read files from the user's laptop. Any "zero-config, uses my local az
+> login" experience on a remote deployment is — at best — the browser-session
+> coincidence above. If you want strict `~/.azure/`-backed auth, run the app
+> locally (`python app.py` or `docker run` with `-v ~/.azure:/home/appuser/.azure`)
+> and skip AKS.
 
 ## License
 
