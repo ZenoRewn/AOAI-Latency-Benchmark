@@ -181,6 +181,33 @@ Short version:
 
 Full step-by-step lives in [`k8s/README.md`](k8s/README.md).
 
+### Redeploy after code changes
+
+A commit to `main` does **not** touch the running pod on its own — the image
+still needs to be rebuilt and rolled. Use the helper script:
+
+```bash
+ACR=<your-acr-name> ./scripts/build-and-deploy.sh
+# or pin a tag
+ACR=<your-acr-name> TAG=v4 ./scripts/build-and-deploy.sh
+# or preview
+DRY_RUN=1 ACR=<your-acr-name> ./scripts/build-and-deploy.sh
+```
+
+It does `docker build --platform linux/amd64` → `az acr login` →
+`docker push` → `kubectl set image` → `kubectl rollout status`. Defaults:
+image repo `aoai-benchmark`, namespace `aoai-benchmark`, deployment
+`aoai-benchmark`, container `app` — all overridable via env vars (see the
+comment block at the top of the script).
+
+After it finishes, a quick curl confirms the new code is live:
+
+```bash
+curl https://<your-host>/api/auth/msal-config  # {"enabled":false} or full MSAL config
+curl https://<your-host>/readyz                # HTTP 200 regardless of credential state
+curl https://<your-host>/api/resources/discover  # one-line error, never a JSON dump
+```
+
 ### About user-side Azure credentials
 
 > **MSAL.js does not read `~/.azure/` from the user's PC.** It relies on the

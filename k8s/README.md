@@ -193,3 +193,36 @@ needed on our side.
 - Auth priority inside the pod: explicit `Authorization: Bearer` header
   (MSAL.js user token) → manual API key from the form → DefaultAzureCredential
   (Workload Identity / Managed Identity) → `AZURE_OPENAI_API_KEY` env.
+
+## One-shot redeploy
+
+Once the cluster is initially bootstrapped, day-to-day rollouts after a
+code change are a single command via the helper at
+[`scripts/build-and-deploy.sh`](../scripts/build-and-deploy.sh):
+
+```bash
+ACR=<your-acr-name> ./scripts/build-and-deploy.sh
+```
+
+It builds the image for `linux/amd64` (AKS x86 pools), pushes to ACR, and
+rolls the Deployment. Override with env vars if your naming differs:
+
+| Env | Default |
+|-----|---------|
+| `ACR` | *(required, e.g. `myregistry`)* |
+| `TAG` | `git rev-parse --short HEAD` |
+| `IMAGE_NAME` | `aoai-benchmark` |
+| `NAMESPACE` | `aoai-benchmark` |
+| `DEPLOY` | `aoai-benchmark` |
+| `CONTAINER` | `app` |
+| `PLATFORM` | `linux/amd64` |
+| `SKIP_LOGIN` | *(unset)* — set to any value to skip `az acr login` |
+| `SKIP_ROLLOUT` | *(unset)* — set to push only, no kubectl |
+| `DRY_RUN` | *(unset)* — set to any value to print commands only |
+
+If you're running this against an in-cluster UAMI that has **not** yet
+been set up (i.e., `k8s/serviceaccount.yaml` still has the
+`REPLACE_WITH_UAMI_CLIENT_ID` placeholder), the new image handles it
+gracefully: WorkloadIdentity is skipped automatically, `/readyz` stays
+green, and Auto Discover surfaces a one-line "please enter endpoint
+manually" instead of the raw AADSTS700016 dump.
