@@ -47,13 +47,18 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
+    """Readiness = the HTTP server is up.
+
+    Auth availability is reported in the body for observability, but we
+    don't 503 on missing credentials — the UI supports manual endpoint +
+    key input as a first-class path, so an auth-less pod is still usable.
+    """
     from auth import detect_auth_method
 
     info = await detect_auth_method()
-    ready = info.get("method") != "none"
     return JSONResponse(
-        status_code=200 if ready else 503,
-        content={"ready": ready, **info},
+        status_code=200,
+        content={"ready": True, **info},
     )
 
 

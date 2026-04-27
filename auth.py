@@ -12,6 +12,7 @@ of get_client() that uses `azure_ad_token=<token>` directly.
 
 import contextvars
 import os
+import re
 import logging
 
 import httpx
@@ -22,6 +23,39 @@ from benchmark.network_timing import TimingTransport
 logger = logging.getLogger(__name__)
 
 TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
+
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _bad_workload_identity_env() -> bool:
+    """True when AZURE_CLIENT_ID looks like a placeholder / junk.
+
+    The Workload Identity webhook injects whatever the ServiceAccount
+    annotation says. If it was deployed with `REPLACE_WITH_UAMI_CLIENT_ID`
+    still in the YAML, the SDK will happily hit Entra ID with that string
+    and get AADSTS700016 back. Detect that upfront and tell the SDK to
+    skip WorkloadIdentity/ManagedIdentity entirely so we don't leak the
+    raw Entra ID error back to the UI.
+    """
+    cid = os.environ.get("AZURE_CLIENT_ID", "").strip()
+    if not cid:
+        return False
+    return _UUID_RE.match(cid) is None
+
+
+def make_default_credential_kwargs() -> dict:
+    """Extra kwargs for DefaultAzureCredential based on pod env sanity."""
+    if _bad_workload_identity_env():
+        logger.warning(
+            "AZURE_CLIENT_ID=%r is not a UUID — skipping WorkloadIdentity/"
+            "ManagedIdentity credential sources.",
+            os.environ.get("AZURE_CLIENT_ID"),
+        )
+        return {
+            "exclude_workload_identity_credential": True,
+            "exclude_managed_identity_credential": True,
+        }
+    return {}
 
 # ContextVar to pass the latest apim-request-id back to the calling benchmark code
 last_request_id: contextvars.ContextVar[str] = contextvars.ContextVar("last_request_id", default="")
@@ -66,7 +100,7 @@ async def detect_auth_method() -> dict:
     try:
         from azure.identity.aio import DefaultAzureCredential
 
-        credential = DefaultAzureCredential()
+        credential = DefaultAzureCredential(**make_default_credential_kwargs())
         token = await credential.get_token(TOKEN_SCOPE)
         await credential.close()
         if token:
@@ -126,7 +160,7 @@ async def get_client(
     try:
         from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 
-        credential = DefaultAzureCredential()
+        credential = DefaultAzureCredential(**make_default_credential_kwargs())
         token_provider = get_bearer_token_provider(credential, TOKEN_SCOPE)
         return AsyncAzureOpenAI(
             azure_endpoint=endpoint,

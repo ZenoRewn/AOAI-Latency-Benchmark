@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import uuid
 import logging
 import shutil
@@ -11,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 
-from auth import detect_auth_method
+from auth import detect_auth_method, make_default_credential_kwargs
 from benchmark.engine import BenchmarkEngine
 from config import (
     MODELS, DEFAULT_API_VERSION, DEFAULT_ITERATIONS, DEFAULT_MAX_TOKENS,
@@ -126,13 +127,11 @@ async def discover_resources():
     if az_resources is not None:
         return {"resources": az_resources, "error": None}
 
+    # Keep the UI message compact — full SDK trace is in pod logs.
+    reason = sdk_error or az_error or "no credentials available"
     return {
         "resources": [],
-        "error": (
-            "Auto-discovery unavailable. "
-            f"SDK: {sdk_error or 'n/a'}. CLI: {az_error or 'n/a'}. "
-            "Please enter endpoint manually."
-        ),
+        "error": f"Auto-discovery unavailable ({reason}). Please enter endpoint manually.",
     }
 
 
@@ -146,9 +145,9 @@ async def _discover_via_sdk() -> tuple[list[dict] | None, str | None]:
         return None, f"SDK import failed: {e}"
 
     try:
-        credential = DefaultAzureCredential()
+        credential = DefaultAzureCredential(**make_default_credential_kwargs())
     except Exception as e:
-        return None, f"Credential init failed: {e}"
+        return None, _short_err(e)
 
     try:
         resources: list[dict] = []
@@ -177,12 +176,31 @@ async def _discover_via_sdk() -> tuple[list[dict] | None, str | None]:
         return resources, None
     except Exception as e:
         logger.debug(f"SDK discover failed: {e}")
-        return None, str(e)
+        return None, _short_err(e)
     finally:
         try:
             await credential.close()
         except Exception:
             pass
+
+
+def _short_err(exc: BaseException) -> str:
+    """Collapse SDK stack-and-json exception text into one readable line.
+
+    DefaultAzureCredential errors tend to be multi-hundred-line dumps that
+    embed raw Entra ID JSON. Show something the UI can fit inside a toast.
+    """
+    msg = str(exc).strip()
+    # AADSTS error codes are the useful tokens
+    m = re.search(r"AADSTS\d+[^.\n'\"]*", msg)
+    if m:
+        return m.group(0).strip()[:240]
+    # Otherwise take the first non-empty line
+    for line in msg.splitlines():
+        line = line.strip()
+        if line:
+            return line[:240]
+    return "Auto-discovery failed"
 
 
 async def _discover_via_az_cli() -> tuple[list[dict] | None, str | None]:

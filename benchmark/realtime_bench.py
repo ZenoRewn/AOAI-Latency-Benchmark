@@ -46,10 +46,13 @@ async def run_realtime(
     elif api_key:
         headers["api-key"] = api_key
     else:
-        # Fall back to pod identity / az login via DefaultAzureCredential
+        # Fall back to pod identity / az login via DefaultAzureCredential.
+        # Skip WorkloadIdentity/ManagedIdentity when AZURE_CLIENT_ID is
+        # clearly a placeholder (same guard as auth.py).
         try:
             from azure.identity import DefaultAzureCredential
-            credential = DefaultAzureCredential()
+            from auth import make_default_credential_kwargs
+            credential = DefaultAzureCredential(**make_default_credential_kwargs())
             token = credential.get_token("https://cognitiveservices.azure.com/.default")
             headers["Authorization"] = f"Bearer {token.token}"
         except Exception as e:
