@@ -1,30 +1,26 @@
-import { acquireToken } from "./msal";
-import { getValidUserToken } from "./userToken";
+import { acquireToken, type TokenPurpose } from "./msal";
 
 // When the frontend is served by FastAPI (production / container / AKS),
-// requests should go to the same origin as the page. Only set
-// NEXT_PUBLIC_API_URL during local `next dev` against a separately-running
-// backend (e.g. http://127.0.0.1:8088).
+// requests go to the same origin as the page. Only set NEXT_PUBLIC_API_URL
+// during local `next dev` against a separately-running backend.
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-async function withAuthHeader(init?: RequestInit): Promise<RequestInit> {
-  // Priority:
-  // 1. User-pasted management token (sessionStorage). Lets each visitor
-  //    authenticate as themselves without an App Registration.
-  // 2. MSAL.js silent acquisition (only active when the backend publishes
-  //    AAD_CLIENT_ID). Currently dormant in prod.
-  // 3. No header — backend falls back to DefaultAzureCredential, useful
-  //    for local dev with an `az login` session.
+// Pick the right token audience per endpoint:
+// - ARM management plane (list subscriptions / Cognitive Services accounts)
+// - Azure OpenAI data plane (run the benchmark)
+function purposeFor(path: string): TokenPurpose {
+  if (path.startsWith("/api/resources/")) return "management";
+  return "data";
+}
+
+async function withAuthHeader(path: string, init?: RequestInit): Promise<RequestInit> {
   let token: string | null = null;
-  const userToken = getValidUserToken();
-  if (userToken) {
-    token = userToken.token;
-  } else {
-    try {
-      token = await acquireToken();
-    } catch {
-      // Silent acquisition failed — caller will see an unauthenticated request.
-    }
+  try {
+    token = await acquireToken(purposeFor(path));
+  } catch {
+    // Silent acquisition failed — caller proceeds without a token and the
+    // backend will fall back to DefaultAzureCredential (useful for local dev
+    // with `az login`).
   }
   if (!token) return init ?? {};
   const headers = new Headers(init?.headers ?? {});
@@ -33,7 +29,7 @@ async function withAuthHeader(init?: RequestInit): Promise<RequestInit> {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const finalInit = await withAuthHeader(init);
+  const finalInit = await withAuthHeader(path, init);
   const res = await fetch(`${API_BASE}${path}`, finalInit);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

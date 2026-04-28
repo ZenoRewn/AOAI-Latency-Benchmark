@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useDiscovery } from "@/hooks/useDiscovery";
 import { useMsal } from "@/hooks/useMsal";
+import { AppRegConfigDialog } from "@/components/auth/AppRegConfig";
+import { getActiveConfig } from "@/lib/msal";
 import {
   API_TYPE_OPTIONS,
   REASONING_EFFORT_OPTIONS,
@@ -76,6 +78,12 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
   >(new Set());
   const [manualName, setManualName] = useState("");
   const [manualEndpoint, setManualEndpoint] = useState("");
+  const [manualApiKey, setManualApiKey] = useState("");
+
+  // Region tab: defaults to Manual when the user is not signed in, auto-flips
+  // to Auto Discover on sign-in.
+  const [regionTab, setRegionTab] = useState<string>("manual");
+  const [appRegOpen, setAppRegOpen] = useState(false);
 
   // ---- model state ----
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
@@ -114,6 +122,16 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
     setApiVersion(appConfig.default_api_version);
     setIterations(appConfig.default_iterations);
     setMaxTokens(appConfig.default_max_tokens);
+  }
+
+  // Auto-flip to Auto Discover the first time the user signs in.
+  const [wasSignedIn, setWasSignedIn] = useState(false);
+  if (msal.signedIn && !wasSignedIn) {
+    setWasSignedIn(true);
+    setRegionTab("discover");
+  }
+  if (!msal.signedIn && wasSignedIn) {
+    setWasSignedIn(false);
   }
 
   // ---------- helpers ----------
@@ -187,7 +205,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
       system_prompt: systemPrompt,
       user_prompt: userPrompt,
       test_cache: testCache,
-      api_key: null,
+      api_key: manualApiKey || null,
       api_version: apiVersion,
       reasoning_efforts: Array.from(selectedEfforts),
       reasoning_summary: reasoningSummary || null,
@@ -218,6 +236,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
     mode,
     monitorInterval,
     monitorDuration,
+    manualApiKey,
     onStart,
   ]);
 
@@ -271,7 +290,9 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
           Authentication
         </span>
         {msal.signedIn ? (
-          <Badge variant="default">AAD SSO</Badge>
+          <Badge variant="default">Entra ID SSO</Badge>
+        ) : msal.configured ? (
+          <Badge variant="secondary">SSO configured, not signed in</Badge>
         ) : auth.loading ? (
           <Badge variant="secondary">Checking...</Badge>
         ) : auth.method === "workload_identity" ? (
@@ -285,41 +306,71 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
         ) : auth.method === "env_vars" ? (
           <Badge variant="default">Environment</Badge>
         ) : (
-          <Badge variant="destructive">Not Configured</Badge>
+          <Badge variant="outline">Manual endpoint + key</Badge>
         )}
         {msal.signedIn && msal.account && (
           <span className="text-xs text-muted-foreground truncate max-w-xs">
             {msal.account.username}
           </span>
         )}
-        {!msal.signedIn && !auth.loading && (
-          <span className="text-xs text-muted-foreground">{auth.detail}</span>
+        {!msal.signedIn && !msal.configured && !auth.loading && (
+          <span className="text-xs text-muted-foreground">
+            No SSO — paste endpoint + API key manually, or configure an App Registration.
+          </span>
         )}
-        {msal.enabled && !msal.signedIn && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="ml-auto"
-            disabled={msal.signingIn}
-            onClick={msal.signIn}
-          >
-            {msal.signingIn ? "Signing in…" : "Sign in with Azure AD"}
-          </Button>
-        )}
-        {msal.signedIn && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            onClick={msal.signOut}
-          >
-            Sign out
-          </Button>
-        )}
+
+        {/* Action area on the right */}
+        <div className="ml-auto flex items-center gap-2">
+          {!msal.configured && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAppRegOpen(true)}
+            >
+              Configure SSO
+            </Button>
+          )}
+          {msal.configured && !msal.signedIn && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={msal.signingIn}
+                onClick={msal.signIn}
+              >
+                {msal.signingIn ? "Signing in…" : "Sign in with Entra ID"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setAppRegOpen(true)}>
+                Edit App Reg
+              </Button>
+            </>
+          )}
+          {msal.signedIn && (
+            <>
+              <Button size="sm" variant="ghost" onClick={msal.signOut}>
+                Sign out
+              </Button>
+              <Button size="sm" variant="ghost" onClick={msal.resetConfig}>
+                Reset SSO
+              </Button>
+            </>
+          )}
+        </div>
+
         {msal.error && (
           <span className="text-xs text-red-600 basis-full">{msal.error}</span>
         )}
       </div>
+
+      <AppRegConfigDialog
+        open={appRegOpen}
+        initial={getActiveConfig()}
+        onCancel={() => setAppRegOpen(false)}
+        onSave={async (cfg) => {
+          await msal.configure(cfg);
+          setAppRegOpen(false);
+        }}
+      />
 
       {/* ====== Region Configuration ====== */}
       <Card className="shadow-sm rounded-xl border-[#E8E4F0]">
@@ -331,10 +382,12 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 px-5 pb-5">
-          <Tabs defaultValue="discover">
+          <Tabs value={regionTab} onValueChange={setRegionTab}>
             <TabsList>
-              <TabsTrigger value="discover">Auto Discover</TabsTrigger>
               <TabsTrigger value="manual">Manual Entry</TabsTrigger>
+              <TabsTrigger value="discover" disabled={!msal.signedIn && auth.method !== "azure_cli"}>
+                Auto Discover
+              </TabsTrigger>
             </TabsList>
 
             {/* -- discover tab -- */}
@@ -405,7 +458,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
                     className="flex-1"
                   />
                   <Input
-                    placeholder="Endpoint URL"
+                    placeholder="Endpoint URL (https://<resource>.openai.azure.com)"
                     value={manualEndpoint}
                     onChange={(e) => setManualEndpoint(e.target.value)}
                     className="flex-[2]"
@@ -414,6 +467,23 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
                     Add
                   </Button>
                 </div>
+                {!msal.signedIn && (
+                  <div className="space-y-1">
+                    <Label htmlFor="manual-api-key">API Key</Label>
+                    <Input
+                      id="manual-api-key"
+                      type="password"
+                      placeholder="Paste the endpoint's API key from Azure Portal → Keys and Endpoint"
+                      value={manualApiKey}
+                      onChange={(e) => setManualApiKey(e.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Applies to every manually added region. Sign in with Entra ID SSO to skip this.
+                    </p>
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>

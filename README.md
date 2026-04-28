@@ -191,24 +191,23 @@ Environment variables the container honors:
 | `AZURE_OPENAI_API_KEY` | *(unset)* | Optional fallback key when no MI/CLI is available |
 | `AZURE_SUBSCRIPTION_ID` | *(unset)* | Restrict discovery to specific subscription(s) (comma-separated) |
 | `APP_VERSION` / `GIT_COMMIT` | *(unset)* | Surfaced on `/api/version` |
-| `AAD_CLIENT_ID` | *(unset)* | Enables MSAL.js browser SSO when set to a SPA App Registration's client id |
-| `AAD_AUTHORITY` | `https://login.microsoftonline.com/organizations` | MSAL authority (change to `.../<tenant-id>` for single tenant) |
-| `AAD_SCOPES` | `https://cognitiveservices.azure.com/user_impersonation` | Comma-separated MSAL scopes |
+
+Browser-side Entra ID SSO (optional) is now configured **per-user inside the
+UI** — the user enters their own App Registration's client id and tenant.
+No MSAL-related env vars need to be set on the server.
 
 ## Deploy to Azure AKS
 
-The `k8s/` directory has a Kustomize-ready set of manifests. Default
-deployment mode is **per-user auth via pasted access tokens** — each
-visitor signs in with their own Azure identity by pasting the output of
-one `az account get-access-token` command, and discovery lists only
-resources under that user's subscriptions. No App Registration or UAMI
-needed.
+The `k8s/` directory has a Kustomize-ready set of manifests. End users sign
+in **with their own Entra ID App Registration** (configured from the UI —
+no server-side MSAL env vars needed), or just paste an endpoint + API key
+and skip sign-in entirely.
 
 Short version:
 
 1. Build and push the image to your registry.
 2. Fill in `REPLACE_WITH_IMAGE` in `k8s/deployment.yaml` and `kubectl apply -k k8s/`.
-3. Done. Users open the site and click "Sign in with Azure" in the header.
+3. Users open the site → pick one of the two auth flows below.
 
 Full step-by-step lives in [`k8s/README.md`](k8s/README.md). How you
 actually run the build/push/roll is up to your environment — CI pipeline,
@@ -221,62 +220,49 @@ ignore it if your deploy flow is elsewhere.
 Once the new image is live, a quick curl confirms it:
 
 ```bash
-curl https://<your-host>/api/auth/msal-config  # {"enabled":false} or full MSAL config
-curl https://<your-host>/readyz                # HTTP 200 regardless of credential state
-curl https://<your-host>/api/resources/discover  # one-line error, never a JSON dump
+curl https://<your-host>/healthz                 # HTTP 200
+curl https://<your-host>/readyz                  # HTTP 200 regardless of credential state
+curl https://<your-host>/api/resources/discover  # one-line error when unauthenticated, never a JSON dump
 ```
 
-### Per-user authentication — how it works
+### Authentication paths
 
-The default auth model is **"bring your own access token"**: each user
-pastes a one-hour management-plane token from their own Azure CLI. This
-means each user sees their own subscriptions, no App Registration is
-required, and the pod has no long-lived credentials of its own.
+Two ways a user can authenticate against their Azure OpenAI resources; both
+are fully self-service inside the browser. Pick one per user — no
+server-side Azure config is required.
 
-**User flow:**
+**1. Entra ID App Registration (recommended for multi-user / team use).**
+Any admin in the tenant creates a single-page App Registration once; each
+user pastes its `client id` + `tenant id` into the app (stored in their
+browser's `localStorage` — no secrets). Browser MSAL then signs in
+silently, and the same identity is used for both Auto Discovery and
+benchmark calls under the user's own RBAC.
 
-1. Open the site. Click **Sign in with Azure** in the top-right of the header.
-2. A dialog pops up with a copy-able command. Run it in your terminal:
-   ```bash
-   az account get-access-token \
-     --resource https://management.azure.com \
-     --query accessToken -o tsv
-   ```
-   (Run `az login` first if you haven't. Use `az account set -s <sub>` to
-   choose which subscription to look at.)
-3. Paste the JWT output back into the dialog and click **Use this token**.
-4. Auto Discovery now lists the AOAI / AIServices resources visible to that
-   token's identity. Switch subscriptions by repeating with a new token.
+The App Registration needs:
+- Type: **Single-page application**
+- Redirect URI: the benchmark's public URL (e.g. `https://aoai-benchmark.example.com`)
+- Delegated permissions on **Azure Service Management** (`user_impersonation`)
+  and **Azure OpenAI / Cognitive Services** (`user_impersonation`)
 
-**Security properties:**
+Users then click **Configure SSO** in the Authentication bar, paste the
+two GUIDs, and sign in. The client id and tenant live only in their
+browser; tokens are acquired per-audience (ARM for discovery, Cognitive
+Services for benchmark calls).
 
-- The token lives only in the browser tab's `sessionStorage` — cleared when
-  the tab closes, not shared across tabs, not sent anywhere except the
-  backend of this site (where it's used to call ARM on the user's behalf
-  and never persisted to disk).
-- Tokens are ~1 hour long. We surface a warning when <5 min remain and
-  auto-clear on expiry.
-- The backend strictly uses the token as an opaque bearer; ARM itself
-  enforces the audience (`aud: management.azure.com`) and the user's RBAC.
+**2. Paste endpoint + API key (single-use / quick tests).**
+Skip sign-in entirely. In the *Manual Entry* tab of Region Configuration,
+add the endpoint URL and paste the API key from Azure Portal → your AOAI
+resource → Keys and Endpoint. The key is used for every manually added
+region in the run.
 
-**Why not browser SSO (MSAL.js)?** That path exists in the code but requires
-an Entra ID App Registration (SPA type, with delegated permissions for
-Azure Service Management + Cognitive Services). To skip that registration
-step, the current deployment uses paste-token instead. If you later decide
-to register an app, set `AAD_CLIENT_ID` in the ConfigMap and the frontend
-will auto-enable silent SSO alongside the paste path.
+### Backend credential fallback (local dev / pod-identity deploys)
 
-The three credential sources the backend will accept, in priority order:
-
-| Source | Enabled when | Who acts on ARM / AOAI |
-|---|---|---|
-| **Per-user pasted token** (default) | User clicks "Sign in with Azure" in the header | The signed-in user |
-| **MSAL.js browser SSO** (optional) | `AAD_CLIENT_ID` is set in the ConfigMap | The signed-in user |
-| **`DefaultAzureCredential` fallback** | No token supplied at all (e.g. local dev with `az login`) | Whichever identity the backend environment has (pod MI / az CLI / etc.) |
-
-For local development, `./scripts/run-local.sh` mounts `~/.azure/` into the
-container so the fallback picks up your existing `az login` session — see
-[Local dev with Auto Discovery](#local-dev-with-auto-discovery-uses-your-az-login).
+When the browser doesn't send an `Authorization: Bearer` header (neither
+SSO nor paste-key is active), the backend falls back to
+`DefaultAzureCredential`. This picks up `az login` locally, or a Workload
+Identity / Managed Identity if you deploy with one attached. Useful when
+running the image on your own laptop via `./scripts/run-local.sh`; for
+shared cluster deployments, prefer one of the two UI-driven paths above.
 
 ## License
 

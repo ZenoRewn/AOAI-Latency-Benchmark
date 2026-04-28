@@ -11,14 +11,5 @@ data:
   # Optional — restrict resource discovery to specific subscriptions.
   # Leave empty to let the SDK enumerate all subscriptions the MI can see.
   AZURE_SUBSCRIPTION_ID: ""
-  # ---------- MSAL.js browser SSO (optional) ----------
-  # Set AAD_CLIENT_ID to a SPA App Registration's application (client) ID
-  # to turn on per-user browser sign-in. Users then hit the page, silently
-  # reuse their Entra ID session, and the backend calls AOAI on their
-  # behalf. Leave empty to disable.
-  AAD_CLIENT_ID: ""
-  # "organizations" = any work/school account across tenants.
-  # Replace with /<tenant-id> for single-tenant.
-  AAD_AUTHORITY: "https://login.microsoftonline.com/organizations"
-  # Scope(s) the browser requests. Comma-separated.
-  AAD_SCOPES: "https://cognitiveservices.azure.com/user_impersonation"
+  # NOTE: Browser SSO is now configured per-user inside the UI (user types
+  # their own App Registration's client id + tenant). No MSAL env vars here.

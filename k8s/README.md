@@ -1,10 +1,10 @@
 # Deploy to Azure AKS
 
 This directory ships a minimal set of manifests for running the benchmark
-on AKS. **Default auth model**: per-user pasted access tokens. Each user
-signs in with a token from their own `az account get-access-token` and
-Auto Discovery lists their subscriptions. No App Registration, no UAMI,
-no Workload Identity needed for the default path.
+on AKS. **Default auth model**: users authenticate themselves from the
+browser — either by pasting an Entra ID App Registration's client id +
+tenant into the UI (SSO), or by pasting an endpoint + API key manually.
+The pod has no long-lived Azure credentials of its own.
 
 The Workload Identity / UAMI path from earlier docs is still supported but
 now optional — see [Optional: pod-level identity](#optional-pod-level-identity)
@@ -45,18 +45,21 @@ Deployment, the webhook ignores it and the placeholder never reaches Azure AD.
 
 ## 3. Verify
 
-Open the ingress URL. Click **Sign in with Azure** in the top-right of the
-header and follow the instructions in the dialog (one `az account
-get-access-token` command, paste the output). Auto Discovery will list your
-subscriptions' AOAI / AIServices resources.
+Open the ingress URL. In the Authentication bar the user picks one of:
 
-From the shell:
+- **Configure SSO** → paste their own Entra ID App Registration's client id
+  and tenant id → click **Save & Sign in**. The browser acquires a token
+  for ARM (for Auto Discovery) and Cognitive Services (for benchmark
+  calls), both under the user's own identity.
+- *Or* leave SSO unconfigured and use the **Manual Entry** tab to paste
+  endpoint + API key.
+
+From the shell the backend is always reachable without any Azure context:
 ```bash
 kubectl -n aoai-benchmark port-forward svc/aoai-benchmark 8088:80
 curl localhost:8088/healthz                   # {"status":"ok"}
-curl localhost:8088/api/resources/discover    # {"resources":[],"error":"..."} — expected without a token
-TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
-curl -H "Authorization: Bearer $TOKEN" localhost:8088/api/resources/discover  # your resources
+curl localhost:8088/readyz                    # HTTP 200 regardless
+curl localhost:8088/api/resources/discover    # {"resources":[],"error":"..."} without a token — expected
 ```
 
 ## Optional: pod-level identity
@@ -141,7 +144,7 @@ kubectl -n aoai-benchmark rollout restart deploy/aoai-benchmark
 
 After this, the pod has an identity. `/api/resources/discover` without a
 user bearer token will fall through to that identity (whatever subscriptions
-its RBAC grants). Per-user paste tokens still take priority.
+its RBAC grants). Per-user browser SSO tokens still take priority.
 
 ### (Optional) API key fallback
 
@@ -171,74 +174,81 @@ curl localhost:8088/readyz         # {"ready":true,"method":"workload_identity",
 curl localhost:8088/api/auth/status
 ```
 
-## 6. (Optional) Enable browser MSAL.js SSO (per-user identity)
+## 6. Provisioning an Entra ID App Registration (for SSO users)
 
-With Workload Identity, **every** request uses the pod's identity. If you
-want each user to authenticate with their own Entra ID and call AOAI under
-their own quota, register a small SPA App Registration and turn on MSAL.
+Users who want SSO need an App Registration. This is a one-time setup by
+someone with tenant permissions; any user who owns the `client_id` +
+`tenant_id` can then type them into the UI and sign in. Nothing about the
+App Registration lives on the server — no env vars, no ConfigMap entries.
 
 > **What the user actually sees.** MSAL does **not** read `~/.azure/` on the
 > user's laptop — it uses the **browser's** existing Entra ID session cookie.
-> If they're already signed into Azure Portal in this browser, "Sign in with
-> Azure AD" is silent (no popup). If not, they see one Microsoft login
-> popup, then silent for ~1h. The signed-in account is whoever is logged into
-> *the browser*, which may differ from `az account show`.
+> If they're already signed into Azure Portal in this browser, sign-in is
+> silent (no popup). If not, they see one Microsoft login popup, then silent
+> for ~1h. The signed-in account is whoever is logged into *the browser*,
+> which may differ from `az account show`.
 
 ```bash
 APP_NAME=aoai-benchmark-spa
 PUBLIC_URL=https://<your-ingress-host>     # <-- your Ingress hostname
 
-# Create a multi-tenant SPA App Registration
+# 1. Create a multi-tenant SPA App Registration
 APP_ID=$(az ad app create \
     --display-name "$APP_NAME" \
     --sign-in-audience AzureADMultipleOrgs \
     --query appId -o tsv)
 
-# Add a SPA redirect URI (browser-flow PKCE). The JSON form is deliberate —
-# `az ad app create` doesn't set SPA redirect URIs correctly otherwise.
+# 2. Add a SPA redirect URI (browser PKCE flow). The JSON form is deliberate —
+#    `az ad app create` doesn't set SPA redirect URIs correctly otherwise.
 az rest --method PATCH \
     --uri "https://graph.microsoft.com/v1.0/applications(appId='${APP_ID}')" \
     --headers "Content-Type=application/json" \
     --body "{\"spa\":{\"redirectUris\":[\"${PUBLIC_URL}\"]}}"
 
-# Grant the app permission to call Azure OpenAI on behalf of the user.
-# We look the "Azure Cognitive Services" API resource up dynamically so we
-# don't hard-code an appId that drifts.
-COGNITIVE_APP_ID=$(az ad sp list --filter "servicePrincipalNames/any(n:n eq 'https://cognitiveservices.azure.com')" \
+# 3. Grant delegated permissions for:
+#      - Azure Service Management (for Auto Discovery against ARM)
+#      - Azure Cognitive Services / OpenAI (for benchmark data-plane calls)
+ARM_APP_ID=$(az ad sp list --filter "servicePrincipalNames/any(n:n eq 'https://management.azure.com')" \
     --query "[0].appId" -o tsv)
-USER_IMPERSONATION=$(az ad sp show --id "$COGNITIVE_APP_ID" \
+ARM_SCOPE=$(az ad sp show --id "$ARM_APP_ID" \
     --query "oauth2PermissionScopes[?value=='user_impersonation'].id | [0]" -o tsv)
 
-az ad app permission add --id "$APP_ID" \
-    --api "$COGNITIVE_APP_ID" \
-    --api-permissions "${USER_IMPERSONATION}=Scope"
+COGNITIVE_APP_ID=$(az ad sp list --filter "servicePrincipalNames/any(n:n eq 'https://cognitiveservices.azure.com')" \
+    --query "[0].appId" -o tsv)
+COGNITIVE_SCOPE=$(az ad sp show --id "$COGNITIVE_APP_ID" \
+    --query "oauth2PermissionScopes[?value=='user_impersonation'].id | [0]" -o tsv)
 
-# Optionally: admin-consent for YOUR home tenant so users don't see a
-# consent prompt on first sign-in. Requires Global/Application Admin.
-az ad app permission grant --id "$APP_ID" \
-    --api "$COGNITIVE_APP_ID" --scope user_impersonation
+az ad app permission add --id "$APP_ID" --api "$ARM_APP_ID" \
+    --api-permissions "${ARM_SCOPE}=Scope"
+az ad app permission add --id "$APP_ID" --api "$COGNITIVE_APP_ID" \
+    --api-permissions "${COGNITIVE_SCOPE}=Scope"
 
-echo "Set this in the ConfigMap:"
-echo "  AAD_CLIENT_ID=$APP_ID"
+# 4. (Optional) Admin-consent so users in your tenant don't see a consent
+#    prompt on first sign-in. Requires Global/Application Admin.
+az ad app permission grant --id "$APP_ID" --api "$ARM_APP_ID" --scope user_impersonation
+az ad app permission grant --id "$APP_ID" --api "$COGNITIVE_APP_ID" --scope user_impersonation
+
+TENANT_ID=$(az account show --query tenantId -o tsv)
+echo ""
+echo "Share these with your users — they paste them into the UI's Configure SSO dialog:"
+echo "  Application (client) ID: $APP_ID"
+echo "  Directory (tenant) ID:   $TENANT_ID   # or 'organizations' for multi-tenant"
 ```
 
-Then:
+Users then:
 
-```bash
-kubectl -n aoai-benchmark set env configmap/aoai-benchmark-config AAD_CLIENT_ID="$APP_ID"
-kubectl -n aoai-benchmark rollout restart deploy/aoai-benchmark
-```
-
-The UI will now show a **"Sign in with Azure AD"** button. Once a user
-signs in, the browser silently acquires an access token for Azure OpenAI
-and every benchmark request runs under their identity.
+1. Open the deployed site.
+2. Click **Configure SSO** in the Authentication bar.
+3. Paste the `client_id` and `tenant_id` into the dialog.
+4. Sign in. Auto Discover lists the resources visible to their identity;
+   benchmark calls run under their own RBAC.
 
 ### External-tenant guests
 
 Users from tenants other than yours can sign in (multi-tenant app), but
 their tenant admin will still need to approve the permission. The user
 sees a standard Microsoft consent screen on first sign-in — no action
-needed on our side.
+needed on the server side.
 
 ## Notes
 
@@ -250,8 +260,10 @@ needed on our side.
 - To rotate the image, re-push a new tag and:
   `kubectl -n aoai-benchmark set image deploy/aoai-benchmark app=<acr>.azurecr.io/aoai-benchmark:v2`
 - Auth priority inside the pod: explicit `Authorization: Bearer` header
-  (MSAL.js user token) → manual API key from the form → DefaultAzureCredential
-  (Workload Identity / Managed Identity) → `AZURE_OPENAI_API_KEY` env.
+  (browser MSAL.js token for either ARM or Cognitive Services scope) →
+  manual API key from the UI form → `DefaultAzureCredential` (Workload
+  Identity / Managed Identity / `az login` on the host) →
+  `AZURE_OPENAI_API_KEY` env var.
 
 ## Optional: one-shot local redeploy helper
 

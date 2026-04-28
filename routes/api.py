@@ -75,32 +75,6 @@ async def auth_status():
     return await detect_auth_method()
 
 
-@router.get("/auth/msal-config")
-async def msal_config():
-    """MSAL.js bootstrap config for the frontend.
-
-    Only advertise MSAL to the browser when AAD_CLIENT_ID is set, otherwise
-    the UI shouldn't render a sign-in button at all.
-    """
-    client_id = os.environ.get("AAD_CLIENT_ID", "").strip()
-    if not client_id:
-        return {"enabled": False}
-
-    authority = os.environ.get(
-        "AAD_AUTHORITY", "https://login.microsoftonline.com/organizations"
-    )
-    scopes_raw = os.environ.get(
-        "AAD_SCOPES", "https://cognitiveservices.azure.com/user_impersonation"
-    )
-    scopes = [s.strip() for s in scopes_raw.split(",") if s.strip()]
-    return {
-        "enabled": True,
-        "client_id": client_id,
-        "authority": authority,
-        "scopes": scopes,
-    }
-
-
 def _extract_bearer(authorization: str | None) -> str | None:
     if not authorization:
         return None

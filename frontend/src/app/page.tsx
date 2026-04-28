@@ -4,7 +4,6 @@ import { useBenchmark } from "@/hooks/useBenchmark";
 import { ConfigPanel } from "@/components/config/ConfigPanel";
 import { RunningPanel } from "@/components/running/RunningPanel";
 import { ResultsPanel } from "@/components/results/ResultsPanel";
-import { SignInBar } from "@/components/auth/SignInBar";
 
 export default function Home() {
   const benchmark = useBenchmark();
@@ -26,7 +25,6 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <SignInBar />
             {benchmark.phase !== "config" && (
               <button
                 onClick={benchmark.reset}
