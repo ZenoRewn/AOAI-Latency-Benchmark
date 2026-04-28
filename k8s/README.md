@@ -18,16 +18,17 @@ below.
 
 ## 1. Build and push the image
 
+Any registry the cluster can pull from works. Example with ACR:
+
 ```bash
 az acr login -n <acr>
-docker build -t <acr>.azurecr.io/aoai-benchmark:v1 .
+docker build --platform linux/amd64 -t <acr>.azurecr.io/aoai-benchmark:v1 .
 docker push <acr>.azurecr.io/aoai-benchmark:v1
 ```
 
-Or use the helper:
-```bash
-ACR=<acr> ./scripts/build-and-deploy.sh
-```
+If you want a one-shot local-machine build+push+roll helper, the repo
+ships `scripts/build-and-deploy.sh`. It's optional — skip it if you
+deploy via CI/GitOps/other tooling.
 
 ## 2. Apply manifests
 
@@ -185,7 +186,7 @@ their own quota, register a small SPA App Registration and turn on MSAL.
 
 ```bash
 APP_NAME=aoai-benchmark-spa
-PUBLIC_URL=https://bench.zeno.ink     # <-- your Ingress hostname
+PUBLIC_URL=https://<your-ingress-host>     # <-- your Ingress hostname
 
 # Create a multi-tenant SPA App Registration
 APP_ID=$(az ad app create \
@@ -252,18 +253,20 @@ needed on our side.
   (MSAL.js user token) → manual API key from the form → DefaultAzureCredential
   (Workload Identity / Managed Identity) → `AZURE_OPENAI_API_KEY` env.
 
-## One-shot redeploy
+## Optional: one-shot local redeploy helper
 
-Once the cluster is initially bootstrapped, day-to-day rollouts after a
-code change are a single command via the helper at
-[`scripts/build-and-deploy.sh`](../scripts/build-and-deploy.sh):
+The repo includes [`scripts/build-and-deploy.sh`](../scripts/build-and-deploy.sh)
+as a local-machine convenience wrapper. It is **not required** — use it
+only if your deployment flow is "run a script from your laptop". CI
+pipelines, GitOps, and other deploy mechanisms should ignore it.
 
 ```bash
 ACR=<your-acr-name> ./scripts/build-and-deploy.sh
 ```
 
-It builds the image for `linux/amd64` (AKS x86 pools), pushes to ACR, and
-rolls the Deployment. Override with env vars if your naming differs:
+It does `docker build --platform linux/amd64` → `az acr login` →
+`docker push` → `kubectl set image` → `kubectl rollout status`. Override
+with env vars if your naming differs:
 
 | Env | Default |
 |-----|---------|
@@ -280,7 +283,7 @@ rolls the Deployment. Override with env vars if your naming differs:
 
 If you're running this against an in-cluster UAMI that has **not** yet
 been set up (i.e., `k8s/serviceaccount.yaml` still has the
-`REPLACE_WITH_UAMI_CLIENT_ID` placeholder), the new image handles it
+`REPLACE_WITH_UAMI_CLIENT_ID` placeholder), the image handles it
 gracefully: WorkloadIdentity is skipped automatically, `/readyz` stays
 green, and Auto Discover surfaces a one-line "please enter endpoint
 manually" instead of the raw AADSTS700016 dump.
