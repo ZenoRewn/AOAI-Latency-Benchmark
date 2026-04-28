@@ -1,18 +1,19 @@
 # Deploy to Azure AKS
 
-This directory ships a minimal set of manifests for running the
-benchmark on AKS using Workload Identity so users can hit the page
-and have requests flow to Azure OpenAI with zero client-side setup.
+This directory ships a minimal set of manifests for running the benchmark
+on AKS. **Default auth model**: per-user pasted access tokens. Each user
+signs in with a token from their own `az account get-access-token` and
+Auto Discovery lists their subscriptions. No App Registration, no UAMI,
+no Workload Identity needed for the default path.
+
+The Workload Identity / UAMI path from earlier docs is still supported but
+now optional — see [Optional: pod-level identity](#optional-pod-level-identity)
+below.
 
 ## Prereqs
 
-- AKS cluster with the **OIDC Issuer** and **Workload Identity**
-  features enabled:
-  ```bash
-  az aks update -g <rg> -n <aks> \
-      --enable-oidc-issuer --enable-workload-identity
-  ```
-- `kubectl` pointed at the cluster (`az aks get-credentials -g <rg> -n <aks>`).
+- `kubectl` pointed at the target cluster
+  (`az aks get-credentials -g <rg> -n <aks>`).
 - A container registry the cluster can pull from (e.g. ACR).
 
 ## 1. Build and push the image
@@ -23,7 +24,59 @@ docker build -t <acr>.azurecr.io/aoai-benchmark:v1 .
 docker push <acr>.azurecr.io/aoai-benchmark:v1
 ```
 
-## 2. Create a User-Assigned Managed Identity and federate it
+Or use the helper:
+```bash
+ACR=<acr> ./scripts/build-and-deploy.sh
+```
+
+## 2. Apply manifests
+
+```bash
+cd k8s/
+sed -i '' "s|REPLACE_WITH_IMAGE:latest|<acr>.azurecr.io/aoai-benchmark:v1|" deployment.yaml
+kubectl apply -k .
+kubectl -n aoai-benchmark rollout status deploy/aoai-benchmark
+```
+
+That's it. The ServiceAccount still ships with a `REPLACE_WITH_UAMI_CLIENT_ID`
+annotation for future use, but with the Workload Identity label off the
+Deployment, the webhook ignores it and the placeholder never reaches Azure AD.
+
+## 3. Verify
+
+Open the ingress URL. Click **Sign in with Azure** in the top-right of the
+header and follow the instructions in the dialog (one `az account
+get-access-token` command, paste the output). Auto Discovery will list your
+subscriptions' AOAI / AIServices resources.
+
+From the shell:
+```bash
+kubectl -n aoai-benchmark port-forward svc/aoai-benchmark 8088:80
+curl localhost:8088/healthz                   # {"status":"ok"}
+curl localhost:8088/api/resources/discover    # {"resources":[],"error":"..."} — expected without a token
+TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+curl -H "Authorization: Bearer $TOKEN" localhost:8088/api/resources/discover  # your resources
+```
+
+## Optional: pod-level identity
+
+Two scenarios where you *do* want a pod-level identity:
+1. You want Auto Discovery to work for users who haven't signed in yet
+   (e.g. a landing page experience).
+2. You're running in a trusted environment and prefer a single service
+   identity over per-user tokens.
+
+In either case, follow [Legacy: Workload Identity path](#legacy-workload-identity-path)
+below. You'll create a UAMI, federate it to the ServiceAccount, patch the
+annotation with a real client id, and re-enable the
+`azure.workload.identity/use: "true"` label on the Deployment.
+
+## Legacy: Workload Identity path
+
+> **Prereq**: AKS cluster with OIDC Issuer + Workload Identity enabled:
+> `az aks update -g <rg> -n <aks> --enable-oidc-issuer --enable-workload-identity`
+
+### Create a User-Assigned Managed Identity and federate it
 
 ```bash
 RG=<rg>
@@ -67,24 +120,29 @@ az identity federated-credential create \
     --audiences api://AzureADTokenExchange
 ```
 
-Record `CLIENT_ID` — you'll patch the ServiceAccount annotation with it
-in the next step.
+Record `CLIENT_ID` — you'll patch the ServiceAccount annotation with it.
 
-## 3. Apply manifests
+### Enable the Workload Identity path
 
+Two edits, then roll:
 ```bash
-# Replace the two placeholders
-cd k8s/
-sed -i '' "s|REPLACE_WITH_UAMI_CLIENT_ID|$CLIENT_ID|" serviceaccount.yaml
-sed -i '' "s|REPLACE_WITH_IMAGE:latest|<acr>.azurecr.io/aoai-benchmark:v1|" deployment.yaml
-# Or override in kustomization.yaml instead.
+# 1. Put the real client id in the SA annotation
+kubectl -n aoai-benchmark annotate sa aoai-benchmark-sa \
+    azure.workload.identity/client-id=$CLIENT_ID --overwrite
 
-kubectl apply -k .
-kubectl -n aoai-benchmark rollout status deploy/aoai-benchmark
-kubectl -n aoai-benchmark get pods
+# 2. Put the label back on the Deployment pod template
+kubectl -n aoai-benchmark patch deploy aoai-benchmark --type=json -p='[
+  {"op":"add","path":"/spec/template/metadata/labels/azure.workload.identity~1use","value":"true"}
+]'
+
+kubectl -n aoai-benchmark rollout restart deploy/aoai-benchmark
 ```
 
-## 4. (Optional) Provide an API key fallback
+After this, the pod has an identity. `/api/resources/discover` without a
+user bearer token will fall through to that identity (whatever subscriptions
+its RBAC grants). Per-user paste tokens still take priority.
+
+### (Optional) API key fallback
 
 If you'd like the benchmark to also work against Azure OpenAI resources
 where the MI has no permission, create a Secret so the pod can use a key:

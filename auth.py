@@ -10,19 +10,66 @@ token (via MSAL.js and an AAD App Registration), prepend a branch at the top
 of get_client() that uses `azure_ad_token=<token>` directly.
 """
 
+import base64
 import contextvars
+import json
 import os
 import re
+import time
 import logging
 
 import httpx
 from openai import AsyncAzureOpenAI
+
+from azure.core.credentials import AccessToken
+from azure.core.credentials_async import AsyncTokenCredential
 
 from benchmark.network_timing import TimingTransport
 
 logger = logging.getLogger(__name__)
 
 TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
+
+
+class BearerTokenAsyncCredential(AsyncTokenCredential):
+    """Wrap a pre-acquired bearer token as an async TokenCredential.
+
+    Used when the frontend supplies an access token via the Authorization
+    header (user pasted an `az account get-access-token` output). The SDK
+    doesn't care which scope was originally requested — audience validation
+    happens server-side. We still try to parse the JWT `exp` claim so the
+    SDK knows when to ask for a refresh; if parsing fails we assume one
+    hour from now, which matches Azure AD's default token lifetime.
+    """
+
+    def __init__(self, token: str):
+        self._token = token
+        self._expires_on = _parse_jwt_expiry(token) or int(time.time()) + 3600
+
+    async def get_token(self, *scopes: str, **kwargs) -> AccessToken:
+        return AccessToken(self._token, self._expires_on)
+
+    async def close(self) -> None:
+        return None
+
+    async def __aenter__(self) -> "BearerTokenAsyncCredential":
+        return self
+
+    async def __aexit__(self, *_args) -> None:
+        await self.close()
+
+
+def _parse_jwt_expiry(token: str) -> int | None:
+    """Return the JWT `exp` claim as unix seconds, or None if unparseable."""
+    try:
+        _, payload_b64, _ = token.split(".")
+        # JWT payloads are url-safe base64 without padding.
+        padding = "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + padding))
+        exp = payload.get("exp")
+        return int(exp) if exp is not None else None
+    except Exception:
+        return None
 
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 

@@ -19,8 +19,11 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: aoai-benchmark
-        # Required for AKS Workload Identity to inject federated tokens
-        azure.workload.identity/use: "true"
+        # NOTE: `azure.workload.identity/use: "true"` is intentionally NOT
+        # set here. With per-user auth (browser-pasted management tokens),
+        # the pod has no identity of its own — requests are authenticated
+        # by whichever user's token the frontend supplies. Re-add the label
+        # if you later configure a real UAMI and want a pod-level fallback.
     spec:
       serviceAccountName: aoai-benchmark-sa
       automountServiceAccountToken: true

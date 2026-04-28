@@ -4,6 +4,7 @@ import { useBenchmark } from "@/hooks/useBenchmark";
 import { ConfigPanel } from "@/components/config/ConfigPanel";
 import { RunningPanel } from "@/components/running/RunningPanel";
 import { ResultsPanel } from "@/components/results/ResultsPanel";
+import { SignInBar } from "@/components/auth/SignInBar";
 
 export default function Home() {
   const benchmark = useBenchmark();
@@ -24,14 +25,17 @@ export default function Home() {
               <p className="text-[#7A7490] text-xs">Cross-region performance testing</p>
             </div>
           </div>
-          {benchmark.phase !== "config" && (
-            <button
-              onClick={benchmark.reset}
-              className="text-sm px-4 py-1.5 rounded-lg border border-[#E8E4F0] text-[#7A7490] hover:bg-[#F3F0F9] hover:text-[#8661C5] transition-colors font-medium"
-            >
-              New Test
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            <SignInBar />
+            {benchmark.phase !== "config" && (
+              <button
+                onClick={benchmark.reset}
+                className="text-sm px-4 py-1.5 rounded-lg border border-[#E8E4F0] text-[#7A7490] hover:bg-[#F3F0F9] hover:text-[#8661C5] transition-colors font-medium"
+              >
+                New Test
+              </button>
+            )}
+          </div>
         </div>
       </header>
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
+import { subscribeUserToken } from "@/lib/userToken";
 import type { DiscoveredResource, DiscoverResponse } from "@/types/benchmark";
 
 interface UseDiscoveryReturn {
@@ -14,9 +15,17 @@ export function useDiscovery(): UseDiscoveryReturn {
   const [resources, setResources] = useState<DiscoveredResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped when the user-pasted token changes so the effect re-runs and
+  // discovery re-issues under the new identity.
+  const [tokenEpoch, setTokenEpoch] = useState(0);
+
+  useEffect(() => {
+    return subscribeUserToken(() => setTokenEpoch((n) => n + 1));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
     // Backend now returns { resources, error } (always 200) so that the UI
     // can gracefully fall back to manual entry. Still tolerate the legacy
@@ -45,7 +54,7 @@ export function useDiscovery(): UseDiscoveryReturn {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tokenEpoch]);
 
   return { resources, loading, error };
 }

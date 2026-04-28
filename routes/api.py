@@ -12,7 +12,11 @@ from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 
-from auth import detect_auth_method, make_default_credential_kwargs
+from auth import (
+    BearerTokenAsyncCredential,
+    detect_auth_method,
+    make_default_credential_kwargs,
+)
 from benchmark.engine import BenchmarkEngine
 from config import (
     MODELS, DEFAULT_API_VERSION, DEFAULT_ITERATIONS, DEFAULT_MAX_TOKENS,
@@ -107,25 +111,38 @@ def _extract_bearer(authorization: str | None) -> str | None:
 
 
 @router.get("/resources/discover")
-async def discover_resources():
+async def discover_resources(
+    authorization: str | None = Header(default=None),
+):
     """Discover Azure AI Services / OpenAI resources.
 
-    Priority:
-    1. azure-mgmt-cognitiveservices SDK with DefaultAzureCredential
-       (works in AKS Workload Identity, Managed Identity, local az login).
-    2. Fallback to `az` CLI if the SDK path fails and `az` is on PATH
-       (covers dev machines without azure-mgmt-* installed).
+    Auth priority:
+    1. Per-user management-plane bearer token from the `Authorization` header
+       (frontend token-paste flow). Each user sees their own subscriptions'
+       resources.
+    2. `DefaultAzureCredential` (AKS Workload Identity, Managed Identity,
+       local `az login`). Used when no per-user token is supplied, e.g. local
+       dev or a single-tenant deployment.
+    3. `az` CLI fallback if both SDK paths failed and `az` is on PATH.
 
-    Returns 200 with `{resources: [...], error: ...}` so the frontend can
-    show a friendly "please input manually" hint instead of erroring out.
+    Always returns 200 with `{resources: [...], error: ...}` so the frontend
+    can render an empty state + instructions instead of a hard error.
     """
-    sdk_resources, sdk_error = await _discover_via_sdk()
+    aad_token = _extract_bearer(authorization)
+
+    sdk_resources, sdk_error = await _discover_via_sdk(aad_token)
     if sdk_resources is not None:
         return {"resources": sdk_resources, "error": None}
 
-    az_resources, az_error = await _discover_via_az_cli()
-    if az_resources is not None:
-        return {"resources": az_resources, "error": None}
+    # `az` fallback is only useful on single-user / local boxes. Skip it
+    # when the caller already supplied a bearer token — that indicates the
+    # multi-user flow and az on the server would use the wrong identity.
+    if aad_token is None:
+        az_resources, az_error = await _discover_via_az_cli()
+        if az_resources is not None:
+            return {"resources": az_resources, "error": None}
+    else:
+        az_error = None
 
     # Keep the UI message compact — full SDK trace is in pod logs.
     reason = sdk_error or az_error or "no credentials available"
@@ -135,8 +152,15 @@ async def discover_resources():
     }
 
 
-async def _discover_via_sdk() -> tuple[list[dict] | None, str | None]:
-    """Use azure-mgmt-cognitiveservices to list AOAI / AIServices accounts."""
+async def _discover_via_sdk(
+    aad_token: str | None = None,
+) -> tuple[list[dict] | None, str | None]:
+    """Use azure-mgmt-cognitiveservices to list AOAI / AIServices accounts.
+
+    If `aad_token` is provided, it's used as a pre-acquired management-plane
+    access token (from the frontend paste flow). Otherwise, falls back to
+    `DefaultAzureCredential` for AKS Workload Identity / local `az login`.
+    """
     try:
         from azure.identity.aio import DefaultAzureCredential
         from azure.mgmt.resource.subscriptions.aio import SubscriptionClient
@@ -145,7 +169,10 @@ async def _discover_via_sdk() -> tuple[list[dict] | None, str | None]:
         return None, f"SDK import failed: {e}"
 
     try:
-        credential = DefaultAzureCredential(**make_default_credential_kwargs())
+        if aad_token:
+            credential = BearerTokenAsyncCredential(aad_token)
+        else:
+            credential = DefaultAzureCredential(**make_default_credential_kwargs())
     except Exception as e:
         return None, _short_err(e)
 

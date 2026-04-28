@@ -197,18 +197,18 @@ Environment variables the container honors:
 
 ## Deploy to Azure AKS
 
-The `k8s/` directory has a Kustomize-ready set of manifests. The key
-property: users don't paste Azure credentials — the pod authenticates to
-Azure OpenAI via **AKS Workload Identity**, so any user who opens the
-page is effectively using a pre-authorized identity.
+The `k8s/` directory has a Kustomize-ready set of manifests. Default
+deployment mode is **per-user auth via pasted access tokens** — each
+visitor signs in with their own Azure identity by pasting the output of
+one `az account get-access-token` command, and discovery lists only
+resources under that user's subscriptions. No App Registration or UAMI
+needed.
 
 Short version:
 
-1. Enable Workload Identity on the cluster (`az aks update --enable-oidc-issuer --enable-workload-identity`).
-2. Build and push the image to ACR.
-3. Create a UAMI, assign **Cognitive Services User** on the target AOAI resource(s).
-4. Federate the UAMI to `system:serviceaccount:aoai-benchmark:aoai-benchmark-sa`.
-5. Fill in `REPLACE_WITH_UAMI_CLIENT_ID` and `REPLACE_WITH_IMAGE` and `kubectl apply -k k8s/`.
+1. Build and push the image to ACR (`./scripts/build-and-deploy.sh`).
+2. Fill in `REPLACE_WITH_IMAGE` in `k8s/deployment.yaml` and `kubectl apply -k k8s/`.
+3. Done. Users open the site and click "Sign in with Azure" in the header.
 
 Full step-by-step lives in [`k8s/README.md`](k8s/README.md).
 
@@ -239,47 +239,57 @@ curl https://<your-host>/readyz                # HTTP 200 regardless of credenti
 curl https://<your-host>/api/resources/discover  # one-line error, never a JSON dump
 ```
 
-### About user-side Azure credentials
+### Per-user authentication — how it works
 
-> **MSAL.js does not read `~/.azure/` from the user's PC.** It relies on the
-> **browser's** existing Entra ID session cookies. That's a separate credential
-> store from the Azure CLI — two different places, two different mechanisms.
+The default auth model is **"bring your own access token"**: each user
+pastes a one-hour management-plane token from their own Azure CLI. This
+means each user sees their own subscriptions, no App Registration is
+required, and the pod has no long-lived credentials of its own.
 
-Why it usually *feels* like "it just used my `az login`": most people run
-`az login` interactively through the browser, which incidentally leaves an
-active Microsoft session cookie in that browser. MSAL.js then reuses that
-cookie via silent SSO, so the user perceives zero clicks. It's convergence,
-not file-sharing.
+**User flow:**
 
-| Your state | First click on "Sign in with Azure AD" |
-|---|---|
-| Browser has an active Entra ID session (usual case) | Silent — no popup, logged in instantly |
-| No browser AAD session (incognito, new machine, device-code `az login`) | One Microsoft popup, then silent for ~1 h |
-| Browser is signed in as a different account than `az login` | MSAL uses the **browser's** account, not the CLI's |
+1. Open the site. Click **Sign in with Azure** in the top-right of the header.
+2. A dialog pops up with a copy-able command. Run it in your terminal:
+   ```bash
+   az account get-access-token \
+     --resource https://management.azure.com \
+     --query accessToken -o tsv
+   ```
+   (Run `az login` first if you haven't. Use `az account set -s <sub>` to
+   choose which subscription to look at.)
+3. Paste the JWT output back into the dialog and click **Use this token**.
+4. Auto Discovery now lists the AOAI / AIServices resources visible to that
+   token's identity. Switch subscriptions by repeating with a new token.
 
-Either way, AOAI calls run under the **signed-in browser identity's** quota and
-RBAC — which is still per-user, just tracked via the browser's session rather
-than the CLI's refresh token.
+**Security properties:**
 
-The two deployment modes:
+- The token lives only in the browser tab's `sessionStorage` — cleared when
+  the tab closes, not shared across tabs, not sent anywhere except the
+  backend of this site (where it's used to call ARM on the user's behalf
+  and never persisted to disk).
+- Tokens are ~1 hour long. We surface a warning when <5 min remain and
+  auto-clear on expiry.
+- The backend strictly uses the token as an opaque bearer; ARM itself
+  enforces the audience (`aud: management.azure.com`) and the user's RBAC.
 
-- **Workload Identity** (default): every request uses the pod's Managed
-  Identity. Users don't sign in, but they also don't get per-user quota.
-- **MSAL.js browser SSO** (optional, opt-in): per-user identity as described
-  above. Usage runs under the signed-in user's AAD account.
+**Why not browser SSO (MSAL.js)?** That path exists in the code but requires
+an Entra ID App Registration (SPA type, with delegated permissions for
+Azure Service Management + Cognitive Services). To skip that registration
+step, the current deployment uses paste-token instead. If you later decide
+to register an app, set `AAD_CLIENT_ID` in the ConfigMap and the frontend
+will auto-enable silent SSO alongside the paste path.
 
-To enable MSAL.js SSO, set `AAD_CLIENT_ID` in the ConfigMap to the application
-ID of a SPA App Registration (see [`k8s/README.md`](k8s/README.md) section 6
-for the full `az ad` walkthrough). Leave empty to disable — the sign-in button
-then simply doesn't appear.
+The three credential sources the backend will accept, in priority order:
 
-> **Physical impossibility notice.** Neither the pod nor the browser can
-> read files from the user's laptop. Any "zero-config, uses my local az
-> login" experience on a remote deployment is — at best — the browser-session
-> coincidence above. If you want strict `~/.azure/`-backed auth, run the app
-> locally with `python app.py` or `./scripts/run-local.sh` (see
-> [Local dev with Auto Discovery](#local-dev-with-auto-discovery-uses-your-az-login))
-> and skip AKS.
+| Source | Enabled when | Who acts on ARM / AOAI |
+|---|---|---|
+| **Per-user pasted token** (default) | User clicks "Sign in with Azure" in the header | The signed-in user |
+| **MSAL.js browser SSO** (optional) | `AAD_CLIENT_ID` is set in the ConfigMap | The signed-in user |
+| **`DefaultAzureCredential` fallback** | No token supplied at all (e.g. local dev with `az login`) | Whichever identity the backend environment has (pod MI / az CLI / etc.) |
+
+For local development, `./scripts/run-local.sh` mounts `~/.azure/` into the
+container so the fallback picks up your existing `az login` session — see
+[Local dev with Auto Discovery](#local-dev-with-auto-discovery-uses-your-az-login).
 
 ## License
 

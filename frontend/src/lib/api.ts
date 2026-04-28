@@ -1,4 +1,5 @@
 import { acquireToken } from "./msal";
+import { getValidUserToken } from "./userToken";
 
 // When the frontend is served by FastAPI (production / container / AKS),
 // requests should go to the same origin as the page. Only set
@@ -7,12 +8,23 @@ import { acquireToken } from "./msal";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function withAuthHeader(init?: RequestInit): Promise<RequestInit> {
+  // Priority:
+  // 1. User-pasted management token (sessionStorage). Lets each visitor
+  //    authenticate as themselves without an App Registration.
+  // 2. MSAL.js silent acquisition (only active when the backend publishes
+  //    AAD_CLIENT_ID). Currently dormant in prod.
+  // 3. No header — backend falls back to DefaultAzureCredential, useful
+  //    for local dev with an `az login` session.
   let token: string | null = null;
-  try {
-    token = await acquireToken();
-  } catch {
-    // Silent acquisition failed — caller will see an unauthenticated request.
-    // The backend will fall back to its own credential chain.
+  const userToken = getValidUserToken();
+  if (userToken) {
+    token = userToken.token;
+  } else {
+    try {
+      token = await acquireToken();
+    } catch {
+      // Silent acquisition failed — caller will see an unauthenticated request.
+    }
   }
   if (!token) return init ?? {};
   const headers = new Headers(init?.headers ?? {});
