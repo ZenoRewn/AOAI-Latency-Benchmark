@@ -11,7 +11,8 @@ Cross-region performance testing tool for Azure OpenAI Service. Measure TTFT (Ti
 - **Prompt caching test** - Measure cache hit rate and latency improvement
 - **Multi-round testing** - Run multiple rounds to observe performance stability over time
 - **Live dashboard** - Real-time progress with per-call metrics as they stream in
-- **Interactive charts** - TTFT bar charts, latency comparison, TPS, percentile distributions, heatmaps, round trends (powered by Plotly)
+- **Interactive charts** - TTFT bars, latency comparison, TPS, percentile distributions, heatmaps, round trends (Next.js + Recharts)
+- **Per-stage latency breakdown** - DNS / TCP / TLS (raw-socket baseline) + Backend / First Token Delay / Token Generation; rendered as a 6-segment stacked bar and a numeric Stage Breakdown table
 - **Export** - Download results as CSV or Excel (with summary sheet)
 - **Flexible authentication** - Azure CLI (`az login`), AKS Workload Identity, Managed Identity, environment variables, or manual API key input
 - **Containerized + AKS-ready** - Multi-stage Dockerfile and Kustomize manifests in `k8s/`
@@ -29,6 +30,7 @@ AOAI_Latency_Benchmark/
 ├── benchmark/
 │   ├── engine.py           # Core orchestrator: region × model × api_type × effort loop
 │   ├── metrics.py          # Data models (BenchmarkResult, SingleCallMetrics, CacheTestResult)
+│   ├── network_timing.py   # Raw-socket DNS/TCP/TLS probe + per-request httpx transport timing
 │   ├── chat_bench.py       # Chat Completions streaming TTFT measurement
 │   ├── responses_bench.py  # Responses API benchmark
 │   ├── cache_test.py       # Prompt caching hit/miss comparison
@@ -36,12 +38,27 @@ AOAI_Latency_Benchmark/
 │   ├── audio_bench.py      # TTS & Whisper (STT) benchmark
 │   ├── image_bench.py      # DALL-E image generation benchmark
 │   └── realtime_bench.py   # Realtime API (WebSocket) benchmark
-├── templates/
-│   ├── base.html           # Base HTML template (Plotly CDN)
-│   └── index.html          # Main UI: config → running → results
-└── static/
-    ├── css/style.css        # Styles
-    └── js/app.js            # Frontend logic: SSE client, charts, table rendering
+├── frontend/               # Next.js 16 app (primary UI)
+│   ├── next.config.ts      # Static export + dev-mode /api + /healthz rewrites to FastAPI
+│   └── src/
+│       ├── app/            # App Router pages + layout + globals.css
+│       ├── lib/            # api.ts (same-origin fetch), msal.ts (browser SSO)
+│       ├── types/          # BenchmarkResult / SingleCallMetrics TS types
+│       └── components/
+│           ├── auth/       # App Registration / SSO dialog
+│           ├── config/     # ConfigPanel (region/model pickers, test params)
+│           ├── running/    # RunningPanel (live progress, SSE stream)
+│           ├── results/    # ResultsPanel, SummaryCards, StageTable, DetailTable
+│           ├── charts/     # TTFT / Latency / TPS / Percentile / Breakdown / Heatmap / Cache (Recharts)
+│           ├── magicui/    # Shimmer/Bento/BorderBeam micro-interactions
+│           └── ui/         # shadcn-style primitives (Tabs, Card, Table, Button, ...)
+├── templates/              # Legacy Jinja2 UI (fallback when frontend/out is absent)
+├── static/                 # CSS/JS for the legacy UI
+├── scripts/
+│   ├── run-dev.sh          # Local dev: FastAPI + next dev with proxied /api (recommended)
+│   ├── run-local.sh        # Local Docker: single image with az login mounted
+│   └── build-and-deploy.sh # Optional helper for image build + AKS rollout
+└── k8s/                    # Kustomize manifests for AKS deploy
 ```
 
 ## Quick Start
@@ -84,7 +101,7 @@ Open **http://127.0.0.1:8088**.
 
 ### Usage
 
-1. **Open the UI** at http://127.0.0.1:8088
+1. **Open the UI** at http://localhost:3000 (path A / local dev) or http://127.0.0.1:8088 (paths B & C / single-process or Docker)
 2. **Add regions** - Use "Auto Discover" (requires `az login`) to find your Azure AI resources, or manually enter endpoint URLs
 3. **Select models** - Pick one or more model deployments from the catalog, or add custom deployment names
 4. **Choose API types** - Chat Completions, Responses API, Embeddings, etc.
@@ -137,17 +154,41 @@ Open **http://127.0.0.1:8088**.
 
 ## Metrics Collected
 
+Each call emits a rich timing record. The dashboard and CSV/xlsx exports
+surface both per-call values and per-(region × model × API × round)
+aggregates.
+
+**Top-line throughput / latency**
+
 | Metric | Description |
 |--------|-------------|
-| TTFT (ms) | Time To First Token - time until the first streaming token arrives |
+| TTFT (ms) | Time To First Token — time until the first streaming token arrives |
 | Total Latency (ms) | End-to-end time from request to last token |
 | TPS | Tokens Per Second (completion tokens / generation time) |
+| P50 / P95 / P99 TTFT, Latency | Percentile distributions |
+| Error Rate | Percentage of failed calls, broken down by error category |
+
+**Per-stage breakdown** (used by the 6-segment stacked bar + Stage Breakdown table)
+
+| Stage | Source | Description |
+|-------|--------|-------------|
+| `probe_dns_ms` | Raw-socket probe, once per region | DNS resolution for the endpoint |
+| `probe_tcp_ms` | Raw-socket probe | TCP connect time |
+| `probe_tls_ms` | Raw-socket probe | TLS handshake time |
+| `avg_ttfb_ms` | Per-call | HTTP response headers arrive (pre-token) |
+| `avg_backend_est_ms` | Per-call, derived | TTFB minus the physical network baseline — server-side processing |
+| First Token Delay | Derived | `ttft - ttfb` — time between headers and first SSE token |
+| `avg_token_gen_ms` | Per-call | `total - ttft` — streaming duration of remaining tokens |
+| `avg_queue_wait_ms` | Per-call, client-side | Time waiting on the concurrency semaphore before the request went out |
+
+**Tokens**
+
+| Metric | Description |
+|--------|-------------|
 | Prompt Tokens | Input token count |
 | Completion Tokens | Output token count |
 | Cached Tokens | Tokens served from prompt cache |
-| P50/P95/P99 TTFT | TTFT percentile distribution |
-| Error Rate | Percentage of failed calls |
-| Cache Hit Rate | Prompt caching effectiveness |
+| Cache Hit Rate | Prompt caching effectiveness (when Cache Test is enabled) |
 
 ## Docker
 
