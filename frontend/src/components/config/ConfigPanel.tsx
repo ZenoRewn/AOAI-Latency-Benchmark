@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useDiscovery } from "@/hooks/useDiscovery";
 import { useMsal } from "@/hooks/useMsal";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { AppRegConfigDialog } from "@/components/auth/AppRegConfig";
 import { getActiveConfig } from "@/lib/msal";
 import {
@@ -73,13 +74,22 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
   }, []);
 
   // ---- region state ----
-  const [configuredRegions, setConfiguredRegions] = useState<RegionConfig[]>([]);
+  // Persisted across "New Test" remounts (localStorage, per-browser).
+  // ConfigPanel unmounts when phase ≠ "config", so without this the user
+  // loses everything they typed the moment a run finishes.
+  const [configuredRegions, setConfiguredRegions] = usePersistedState<RegionConfig[]>(
+    "aoai-benchmark:regions.v1",
+    []
+  );
+  const [manualApiKey, setManualApiKey] = usePersistedState<string>(
+    "aoai-benchmark:manualApiKey.v1",
+    ""
+  );
   const [selectedDiscovered, setSelectedDiscovered] = useState<
     Set<string>
   >(new Set());
   const [manualName, setManualName] = useState("");
   const [manualEndpoint, setManualEndpoint] = useState("");
-  const [manualApiKey, setManualApiKey] = useState("");
 
   // Region tab: defaults to Manual when the user is not signed in, auto-flips
   // to Auto Discover on sign-in.
@@ -470,7 +480,18 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
                 </div>
                 {!msal.signedIn && (
                   <div className="space-y-1">
-                    <Label htmlFor="manual-api-key">API Key</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="manual-api-key">API Key</Label>
+                      {manualApiKey && (
+                        <button
+                          type="button"
+                          onClick={() => setManualApiKey("")}
+                          className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                     <Input
                       id="manual-api-key"
                       type="password"
@@ -481,7 +502,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
                       spellCheck={false}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Applies to every manually added region. Sign in with Entra ID SSO to skip this.
+                      Applies to every manually added region. Stored in this browser (localStorage) so it survives &ldquo;New Test&rdquo;; clear it here or wipe site data to remove. Sign in with Entra ID SSO to skip this.
                     </p>
                   </div>
                 )}
