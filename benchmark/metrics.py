@@ -96,6 +96,12 @@ class BenchmarkResult:
     avg_queue_wait_ms: float = 0.0
     p95_queue_wait_ms: float = 0.0
     network_probe_ms: float = 0.0
+    # Raw-socket network baseline, broken down. Probed once per region so
+    # the values reflect the physical link (unlike per-call dns/tcp/tls
+    # which are 0 on reused connections).
+    probe_dns_ms: float = 0.0
+    probe_tcp_ms: float = 0.0
+    probe_tls_ms: float = 0.0
     # Sample counts
     sample_count: int = 0
     success_count: int = 0
@@ -211,6 +217,9 @@ class BenchmarkResult:
             "avg_queue_wait_ms": self.avg_queue_wait_ms,
             "p95_queue_wait_ms": self.p95_queue_wait_ms,
             "network_probe_ms": self.network_probe_ms,
+            "probe_dns_ms": self.probe_dns_ms,
+            "probe_tcp_ms": self.probe_tcp_ms,
+            "probe_tls_ms": self.probe_tls_ms,
             "calls": [c.to_dict() for c in self.calls],
             "cache": self.cache.to_dict() if self.cache else None,
         }

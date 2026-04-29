@@ -1,4 +1,8 @@
-import React from "react";
+"use client";
+
+import React, { useCallback } from "react";
+
+import { cn } from "@/lib/utils";
 
 interface ChartCardProps {
   title: string;
@@ -13,25 +17,40 @@ export default function ChartCard({
   subtitle,
   action,
   children,
-  className = "",
+  className,
 }: ChartCardProps) {
+  const handleMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+    el.style.setProperty("--my", `${e.clientY - rect.top}px`);
+  }, []);
+
+  const handleLeave = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.currentTarget.style.setProperty("--mx", "50%");
+    e.currentTarget.style.setProperty("--my", "50%");
+  }, []);
+
   return (
     <div
-      className={`bg-white shadow-sm rounded-xl border border-[#E8E4F0] ${className}`}
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
+      className={cn(
+        "surface-glow rounded-xl flex flex-col shadow-sm",
+        className
+      )}
     >
-      {/* CardHeader */}
       <div className="flex items-start justify-between p-5 pb-0">
         <div>
-          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+          <h3 className="panel-title">{title}</h3>
           {subtitle && (
-            <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+            <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
           )}
         </div>
         {action && <div className="shrink-0 ml-4">{action}</div>}
       </div>
 
-      {/* CardContent */}
-      <div className="p-5">{children}</div>
+      <div className="flex-1 p-5 pt-4">{children}</div>
     </div>
   );
 }

@@ -1,44 +1,33 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { BenchmarkResult } from "@/types/benchmark";
-import {
-  Activity,
-  Clock,
-  Zap,
-  Globe,
-  Trophy,
-  AlertTriangle,
-  Database,
-  Timer,
-} from "lucide-react";
+import { NumberTicker } from "@/components/magicui/number-ticker";
+import { cn } from "@/lib/utils";
 
 interface SummaryCardsProps {
   results: BenchmarkResult[];
 }
 
-function fmt(value: number, decimals = 1): string {
-  return value.toFixed(decimals);
-}
-
 interface StatCard {
+  key: string;
   label: string;
-  value: string;
-  icon: React.ReactNode;
-  iconBg: string;
-  iconColor: string;
+  numeric?: number;
+  decimals?: number;
+  suffix?: string;
+  text?: string;
+  /** CSS color for the big value (one of the --display-* tokens) */
+  color?: string;
+  highlight?: boolean;
 }
 
 export function SummaryCards({ results }: SummaryCardsProps) {
   const summary = useMemo(() => {
-    if (results.length === 0) {
-      return null;
-    }
+    if (results.length === 0) return null;
 
     const totalTests = results.length;
     const rounds = new Set(results.map((r) => r.round)).size;
 
-    // Avg TTFT — skip entries where avg_ttft_ms is 0 or null-ish
     const ttftResults = results.filter((r) => r.avg_ttft_ms > 0);
     const avgTTFT =
       ttftResults.length > 0
@@ -46,22 +35,17 @@ export function SummaryCards({ results }: SummaryCardsProps) {
           ttftResults.length
         : null;
 
-    // Avg Latency
     const avgLatency =
       results.reduce((sum, r) => sum + r.avg_latency_ms, 0) / totalTests;
 
-    // Avg TPS
     const avgTPS =
       results.reduce((sum, r) => sum + r.avg_tps, 0) / totalTests;
 
-    // Fastest region by TTFT
     let fastestRegion: string | null = null;
     if (ttftResults.length > 0) {
       const regionTTFT: Record<string, { sum: number; count: number }> = {};
       for (const r of ttftResults) {
-        if (!regionTTFT[r.region]) {
-          regionTTFT[r.region] = { sum: 0, count: 0 };
-        }
+        if (!regionTTFT[r.region]) regionTTFT[r.region] = { sum: 0, count: 0 };
         regionTTFT[r.region].sum += r.avg_ttft_ms;
         regionTTFT[r.region].count += 1;
       }
@@ -75,12 +59,9 @@ export function SummaryCards({ results }: SummaryCardsProps) {
       }
     }
 
-    // Highest TPS model
     const modelTPS: Record<string, { sum: number; count: number }> = {};
     for (const r of results) {
-      if (!modelTPS[r.model]) {
-        modelTPS[r.model] = { sum: 0, count: 0 };
-      }
+      if (!modelTPS[r.model]) modelTPS[r.model] = { sum: 0, count: 0 };
       modelTPS[r.model].sum += r.avg_tps;
       modelTPS[r.model].count += 1;
     }
@@ -94,7 +75,6 @@ export function SummaryCards({ results }: SummaryCardsProps) {
       }
     }
 
-    // Cache hit rate
     const cacheResults = results.filter((r) => r.cache != null);
     const cacheHitRate =
       cacheResults.length > 0
@@ -102,7 +82,6 @@ export function SummaryCards({ results }: SummaryCardsProps) {
           cacheResults.length
         : null;
 
-    // Error count
     const testsWithErrors = results.filter((r) => r.error_rate > 0).length;
 
     return {
@@ -118,104 +97,123 @@ export function SummaryCards({ results }: SummaryCardsProps) {
     };
   }, [results]);
 
-  if (!summary) {
-    return null;
-  }
+  if (!summary) return null;
 
   const cards: StatCard[] = [
     {
-      label: "Total Tests",
-      value:
-        summary.rounds > 1
-          ? `${summary.totalTests} (${summary.rounds} rounds)`
-          : `${summary.totalTests}`,
-      icon: <Activity className="h-5 w-5" />,
-      iconBg: "bg-[var(--info-light)]",
-      iconColor: "text-[var(--info)]",
+      key: "total",
+      label:
+        summary.rounds > 1 ? `Total Tests · ${summary.rounds}r` : "Total Tests",
+      numeric: summary.totalTests,
+      decimals: 0,
+      color: "var(--display-blue)",
     },
     ...(summary.avgTTFT != null
       ? [
           {
+            key: "ttft",
             label: "Avg TTFT (ms)",
-            value: fmt(summary.avgTTFT),
-            icon: <Timer className="h-5 w-5" />,
-            iconBg: "bg-[var(--success-light)]",
-            iconColor: "text-[var(--success)]",
-          },
+            numeric: summary.avgTTFT,
+            decimals: 1,
+            color: "var(--display-green)",
+          } satisfies StatCard,
         ]
       : []),
     {
+      key: "latency",
       label: "Avg Latency (ms)",
-      value: fmt(summary.avgLatency),
-      icon: <Clock className="h-5 w-5" />,
-      iconBg: "bg-[var(--warning-light)]",
-      iconColor: "text-[var(--warning)]",
+      numeric: summary.avgLatency,
+      decimals: 1,
+      color: "var(--display-amber)",
     },
     {
+      key: "tps",
       label: "Avg TPS",
-      value: fmt(summary.avgTPS),
-      icon: <Zap className="h-5 w-5" />,
-      iconBg: "bg-[#F3F0F9]",
-      iconColor: "text-[#8661C5]",
+      numeric: summary.avgTPS,
+      decimals: 1,
+      color: "var(--display-violet)",
     },
     {
+      key: "region",
       label: "Fastest Region",
-      value: summary.fastestRegion ?? "N/A",
-      icon: <Globe className="h-5 w-5" />,
-      iconBg: "bg-[var(--success-light)]",
-      iconColor: "text-[var(--success)]",
+      text: summary.fastestRegion ?? "N/A",
+      color: "var(--display-green)",
+      highlight: !!summary.fastestRegion,
     },
     {
+      key: "topModel",
       label: "Highest TPS Model",
-      value: summary.highestTPSModel ?? "N/A",
-      icon: <Trophy className="h-5 w-5" />,
-      iconBg: "bg-[var(--warning-light)]",
-      iconColor: "text-[var(--warning)]",
+      text: summary.highestTPSModel ?? "N/A",
+      color: "var(--display-cyan)",
+      highlight: !!summary.highestTPSModel,
     },
     {
+      key: "cache",
       label: "Cache Hit Rate",
-      value:
-        summary.cacheHitRate != null
-          ? `${(summary.cacheHitRate * 100).toFixed(1)}%`
-          : "N/A",
-      icon: <Database className="h-5 w-5" />,
-      iconBg: "bg-[var(--info-light)]",
-      iconColor: "text-[var(--info)]",
+      numeric: summary.cacheHitRate != null ? summary.cacheHitRate * 100 : undefined,
+      decimals: 1,
+      suffix: "%",
+      text: summary.cacheHitRate == null ? "N/A" : undefined,
+      color: "var(--display-cyan)",
     },
     {
+      key: "errors",
       label: "Tests with Errors",
-      value: `${summary.testsWithErrors}`,
-      icon: <AlertTriangle className="h-5 w-5" />,
-      iconBg: "bg-[var(--error-light)]",
-      iconColor: "text-[var(--error)]",
+      numeric: summary.testsWithErrors,
+      decimals: 0,
+      color:
+        summary.testsWithErrors > 0
+          ? "var(--display-rose)"
+          : "var(--foreground)",
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-      {cards.map((card) => (
-        <div
-          key={card.label}
-          className="bg-white shadow-sm rounded-xl border border-[#E8E4F0] p-5 flex items-start gap-4"
-        >
-          {/* Icon avatar */}
-          <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${card.iconBg} ${card.iconColor}`}
-          >
-            {card.icon}
-          </div>
-
-          {/* Content: 3-tier hierarchy */}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm text-muted-foreground opacity-70 truncate">
-              {card.label}
-            </p>
-            <p className="text-2xl font-bold tabular-nums leading-tight mt-0.5">
-              {card.value}
-            </p>
-          </div>
-        </div>
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      {cards.map((card, idx) => (
+        <GlowStatCard key={card.key} card={card} index={idx} />
       ))}
+    </div>
+  );
+}
+
+function GlowStatCard({ card, index }: { card: StatCard; index: number }) {
+  const handleMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+    el.style.setProperty("--my", `${e.clientY - rect.top}px`);
+  }, []);
+
+  const handleLeave = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.currentTarget.style.setProperty("--mx", "50%");
+    e.currentTarget.style.setProperty("--my", "50%");
+  }, []);
+
+  return (
+    <div
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
+      className={cn(
+        "surface-glow rounded-xl px-4 py-3.5 backdrop-blur-sm"
+      )}
+    >
+      <p className="stat-label truncate">{card.label}</p>
+      <p
+        className="mt-1.5 stat-value text-[1.6rem] sm:text-[1.75rem] truncate"
+        style={{ color: card.color ?? "var(--foreground)" }}
+      >
+        {card.numeric != null ? (
+          <NumberTicker
+            value={card.numeric}
+            decimals={card.decimals ?? 0}
+            suffix={card.suffix ?? ""}
+            delay={index * 0.05}
+          />
+        ) : (
+          <span>{card.text}</span>
+        )}
+      </p>
     </div>
   );
 }

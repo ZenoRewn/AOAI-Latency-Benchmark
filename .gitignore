@@ -30,6 +30,9 @@ frontend/next-env.d.ts
 # Claude
 .claude/
 
+# run-dev.sh pid/log directory
+.run/
+
 # Misc
 *.pem
 *.log

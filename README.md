@@ -48,7 +48,8 @@ AOAI_Latency_Benchmark/
 
 ### Prerequisites
 
-- Python 3.10+
+- Python **3.10+** (the codebase uses PEP 604 `X | None` syntax; macOS's bundled `python3` is 3.9 and will fail — install `python@3.13` via Homebrew or similar)
+- Node.js 20+ and npm (only for local dev with the Next.js dev server — not needed for the Docker path)
 - An Azure subscription with Azure OpenAI resources deployed
 - Authentication via one of:
   - **Azure CLI**: `az login` (recommended)
@@ -57,18 +58,29 @@ AOAI_Latency_Benchmark/
 
 ### Install & Run
 
+Pick the path that matches your goal:
+
+**A. Local dev with hot reload (recommended while iterating)** — runs FastAPI on `:8088` and the Next.js dev server on `:3000`. `/api/*` and `/healthz` are proxied through the frontend via `next.config.ts`, so there is **no env var to set**. The script auto-picks a Python 3.10+ interpreter, creates `.venv/`, and installs deps on first run.
+
 ```bash
-# Clone or download the project
-cd AOAI_Latency_Benchmark
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start the server
-python app.py
+./scripts/run-dev.sh              # start both (detached) + smoke test
+./scripts/run-dev.sh status       # show pids / URLs
+./scripts/run-dev.sh stop         # stop both
 ```
 
-The application will start at **http://127.0.0.1:8088**.
+Open **http://localhost:3000**.
+
+**B. One-process (FastAPI serves the prebuilt frontend)** — good for container / AKS-style smoke tests. Requires `frontend/out/` to exist (run `cd frontend && npm run build` once).
+
+```bash
+python3.13 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python app.py
+```
+
+Open **http://127.0.0.1:8088**.
+
+**C. Docker, with your `az login` mounted in** — see `./scripts/run-local.sh`.
 
 ### Usage
 

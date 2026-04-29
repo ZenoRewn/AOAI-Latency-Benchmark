@@ -30,8 +30,8 @@ interface TooltipPayloadEntry {
 function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipPayloadEntry[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white shadow-lg rounded-lg px-3 py-2 border border-gray-100">
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
+    <div className="bg-card text-card-foreground shadow-lg rounded-lg px-3 py-2 border border-[var(--border)]">
+      <p className="text-xs text-muted-foreground mb-1">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-sm font-medium" style={{ color: p.color }}>
           {p.name}: {typeof p.value === "number" ? p.value.toLocaleString() : p.value} ms

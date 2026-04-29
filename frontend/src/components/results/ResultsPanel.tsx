@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { SummaryCards } from "@/components/results/SummaryCards";
 import { DetailTable } from "@/components/results/DetailTable";
+import { StageTable } from "@/components/results/StageTable";
 import TTFTChart from "@/components/charts/TTFTChart";
 import LatencyChart from "@/components/charts/LatencyChart";
 import TPSChart from "@/components/charts/TPSChart";
@@ -50,6 +51,9 @@ function resultsToCsv(results: BenchmarkResult[]): string {
     "Avg TLS (ms)",
     "Avg Token Gen (ms)",
     "Network Probe (ms)",
+    "Probe DNS (ms)",
+    "Probe TCP (ms)",
+    "Probe TLS (ms)",
   ];
 
   const rows = results.map((r) =>
@@ -72,6 +76,9 @@ function resultsToCsv(results: BenchmarkResult[]): string {
       r.avg_tls_ms.toFixed(1),
       r.avg_token_gen_ms.toFixed(1),
       r.network_probe_ms.toFixed(1),
+      (r.probe_dns_ms || 0).toFixed(1),
+      (r.probe_tcp_ms || 0).toFixed(1),
+      (r.probe_tls_ms || 0).toFixed(1),
     ].join(",")
   );
 
@@ -129,6 +136,9 @@ export function ResultsPanel({ results, runId, onNewTest }: ResultsPanelProps) {
         r.avg_tls_ms.toFixed(1),
         r.avg_token_gen_ms.toFixed(1),
         r.network_probe_ms.toFixed(1),
+        (r.probe_dns_ms || 0).toFixed(1),
+        (r.probe_tcp_ms || 0).toFixed(1),
+        (r.probe_tls_ms || 0).toFixed(1),
       ].join("\t")
     );
 
@@ -162,14 +172,17 @@ export function ResultsPanel({ results, runId, onNewTest }: ResultsPanelProps) {
         )}
       </div>
 
-      {/* Charts */}
-      <TTFTChart results={results} />
-      <LatencyChart results={results} />
-      <TPSChart results={results} />
-      <PercentileChart results={results} />
-      <LatencyBreakdownChart results={results} />
-      <HeatmapChart results={results} />
-      <CacheResults results={results} />
+      {/* Charts — Bento layout */}
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+        <div className="md:col-span-3"><TTFTChart results={results} /></div>
+        <div className="md:col-span-3"><LatencyChart results={results} /></div>
+        <div className="md:col-span-3"><TPSChart results={results} /></div>
+        <div className="md:col-span-3"><PercentileChart results={results} /></div>
+        <div className="md:col-span-6"><LatencyBreakdownChart results={results} /></div>
+        <div className="md:col-span-6"><StageTable results={results} /></div>
+        <div className="md:col-span-6"><HeatmapChart results={results} /></div>
+        <div className="md:col-span-6"><CacheResults results={results} /></div>
+      </div>
 
       {/* Detail Table */}
       <DetailTable results={results} />

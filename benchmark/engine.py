@@ -17,7 +17,7 @@ from config import (
     DEFAULT_IMAGE_PROMPT, DEFAULT_IMAGE_SIZE, WHISPER_TEST_AUDIO,
 )
 from benchmark.metrics import BenchmarkResult
-from benchmark.network_timing import probe_network_baseline
+from benchmark.network_timing import NetworkProbe, probe_network_baseline
 from benchmark.chat_bench import run_chat_completion
 from benchmark.responses_bench import run_responses_api
 from benchmark.cache_test import run_cache_test
@@ -144,6 +144,7 @@ class BenchmarkEngine:
 
         semaphore = asyncio.Semaphore(concurrency)
         network_baselines: dict[str, float] = {}
+        network_probes: dict[str, NetworkProbe] = {}  # keep full breakdown
 
         for round_num in range(1, rounds + 1):
             round_prefix = f"Round {round_num}/{rounds}: " if rounds > 1 else ""
@@ -158,11 +159,13 @@ class BenchmarkEngine:
                         host = urlparse(endpoint).hostname
                         probe = await probe_network_baseline(host)
                         network_baselines[region_name] = probe.total_ms
+                        network_probes[region_name] = probe
                         yield {"type": "probe", "region": region_name, "probe": probe.to_dict()}
                     except Exception:
                         network_baselines[region_name] = 0.0
 
                 net_baseline = network_baselines.get(region_name, 0.0)
+                net_probe = network_probes.get(region_name)
 
                 needs_client = any(at != "realtime" for at in api_types)
                 client = None
@@ -248,6 +251,9 @@ class BenchmarkEngine:
                             round=round_num,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                             network_probe_ms=net_baseline,
+                            probe_dns_ms=net_probe.dns_ms if net_probe else 0.0,
+                            probe_tcp_ms=net_probe.tcp_ms if net_probe else 0.0,
+                            probe_tls_ms=net_probe.tls_ms if net_probe else 0.0,
                         )
                         for _, call_metrics in sorted(calls_list, key=lambda x: x[0]):
                             result.calls.append(call_metrics)
@@ -514,6 +520,9 @@ class BenchmarkEngine:
                 "avg_queue_wait_ms": r.avg_queue_wait_ms,
                 "p95_queue_wait_ms": r.p95_queue_wait_ms,
                 "network_probe_ms": r.network_probe_ms,
+                "probe_dns_ms": r.probe_dns_ms,
+                "probe_tcp_ms": r.probe_tcp_ms,
+                "probe_tls_ms": r.probe_tls_ms,
             }
             if r.cache:
                 base["cache_miss_latency_ms"] = r.cache.miss_latency_ms

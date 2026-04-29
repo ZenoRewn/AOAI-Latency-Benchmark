@@ -55,10 +55,10 @@ export function AppRegConfigDialog({
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-w-lg rounded-xl bg-card text-card-foreground border border-[var(--border)] p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold text-[#2D2B3A]">
+        <h2 className="text-lg font-semibold text-foreground">
           Configure Entra ID App Registration
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -66,7 +66,7 @@ export function AppRegConfigDialog({
           id and tenant live only in this browser&apos;s <code>localStorage</code>.
         </p>
 
-        <ol className="mt-4 space-y-2 rounded-lg border border-[#E8E4F0] bg-[#FAF8FD] p-4 text-xs text-[#2D2B3A]">
+        <ol className="mt-4 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)] p-4 text-xs text-foreground">
           <li>
             1. In Azure Portal, register a new <strong>Single-page application</strong> with
             redirect URI <code className="text-[11px]">{typeof window !== "undefined" ? window.location.origin : ""}</code>.
@@ -94,7 +94,7 @@ export function AppRegConfigDialog({
               spellCheck={false}
             />
             {clientId && !clientIdValid && (
-              <p className="text-xs text-red-600">Must be a GUID.</p>
+              <p className="text-xs text-[var(--destructive)]">Must be a GUID.</p>
             )}
           </div>
           <div className="space-y-1">

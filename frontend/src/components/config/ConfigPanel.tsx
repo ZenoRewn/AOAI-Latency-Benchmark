@@ -21,6 +21,7 @@ import type {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ShimmerButton } from "@/components/magicui/shimmer-button";
 import {
   Card,
   CardContent,
@@ -285,7 +286,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-6">
       {/* ====== Auth Status ====== */}
-      <div className="bg-white shadow-sm rounded-xl border border-[#E8E4F0] p-5 flex flex-wrap items-center gap-3">
+      <div className="bg-card shadow-sm rounded-xl border border-[var(--border)] p-5 flex flex-wrap items-center gap-3">
         <span className="text-sm font-medium text-muted-foreground">
           Authentication
         </span>
@@ -358,7 +359,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
         </div>
 
         {msal.error && (
-          <span className="text-xs text-red-600 basis-full">{msal.error}</span>
+          <span className="text-xs text-[var(--destructive)] basis-full">{msal.error}</span>
         )}
       </div>
 
@@ -373,7 +374,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
       />
 
       {/* ====== Region Configuration ====== */}
-      <Card className="shadow-sm rounded-xl border-[#E8E4F0]">
+      <Card className="shadow-sm rounded-xl border-[var(--border)]">
         <CardHeader className="p-5 pb-3">
           <CardTitle className="text-lg font-semibold">Region Configuration</CardTitle>
           <CardDescription>
@@ -383,7 +384,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
         </CardHeader>
         <CardContent className="space-y-4 px-5 pb-5">
           <Tabs value={regionTab} onValueChange={setRegionTab}>
-            <TabsList>
+            <TabsList variant="line">
               <TabsTrigger value="manual">Manual Entry</TabsTrigger>
               <TabsTrigger value="discover" disabled={!msal.signedIn && auth.method !== "azure_cli"}>
                 Auto Discover
@@ -530,7 +531,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
       </Card>
 
       {/* ====== Model Selection ====== */}
-      <Card className="shadow-sm rounded-xl border-[#E8E4F0]">
+      <Card className="shadow-sm rounded-xl border-[var(--border)]">
         <CardHeader className="p-5 pb-3">
           <CardTitle className="text-lg font-semibold">Model Selection</CardTitle>
           <CardDescription>
@@ -539,7 +540,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
         </CardHeader>
         <CardContent className="space-y-4 px-5 pb-5">
           <Tabs defaultValue={modelGroupKeys[0] ?? "custom"}>
-            <TabsList className="flex-wrap">
+            <TabsList variant="line" className="flex-wrap">
               {modelGroupKeys.map((group) => (
                 <TabsTrigger key={group} value={group}>
                   {group}
@@ -617,7 +618,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
       </Card>
 
       {/* ====== Test Parameters ====== */}
-      <Card className="shadow-sm rounded-xl border-[#E8E4F0]">
+      <Card className="shadow-sm rounded-xl border-[var(--border)]">
         <CardHeader className="p-5 pb-3">
           <CardTitle className="text-lg font-semibold">Test Parameters</CardTitle>
           <CardDescription>
@@ -868,14 +869,16 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
 
       {/* ====== Start Button ====== */}
       <div className="flex justify-end">
-        <Button
-          size="lg"
+        <ShimmerButton
           disabled={!canStart}
           onClick={handleStart}
-          className="min-w-[200px] rounded-xl shadow-md"
+          className="min-w-[220px] text-base"
         >
           {mode === "monitor" ? "Start Monitor" : "Start Benchmark"}
-        </Button>
+          <svg className="h-4 w-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </ShimmerButton>
       </div>
     </div>
   );

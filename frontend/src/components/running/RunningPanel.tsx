@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ShineBorder } from "@/components/magicui/shine-border";
 import type { SSECallResult } from "@/types/benchmark";
 
 interface Progress {
@@ -53,22 +54,43 @@ export function RunningPanel({
     });
   }, []);
 
+  const isActive = pct < 100;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Progress card */}
-      <div className="bg-white shadow-sm rounded-xl p-5 border border-[#E8E4F0]">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground font-medium">
-              {progress.message}
-            </span>
-            <span className="font-semibold tabular-nums text-foreground">
-              {progress.current} / {progress.total} ({pct}%)
+      <div className="relative bg-card shadow-sm rounded-xl p-5 border border-[var(--border)] overflow-hidden">
+        {isActive && (
+          <ShineBorder
+            borderWidth={1.5}
+            duration={6}
+            shineColor={["var(--chart-1)", "var(--chart-2)", "var(--chart-4)"]}
+          />
+        )}
+        <div className="flex flex-col gap-3 relative">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`status-pill ${isActive ? "info" : "ok"} shrink-0`}>
+                {isActive ? "Running" : "Done"}
+              </span>
+              <span className="text-sm text-muted-foreground font-medium truncate">
+                {progress.message}
+              </span>
+            </div>
+            <span className="stat-value text-base text-foreground">
+              <span style={{ color: "var(--display-blue)" }}>
+                {progress.current}
+              </span>
+              <span className="text-muted-foreground font-normal"> / </span>
+              {progress.total}
+              <span className="ml-2 text-xs text-muted-foreground font-medium">
+                ({pct}%)
+              </span>
             </span>
           </div>
-          <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--secondary)] border border-[var(--border)]">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#8661C5] to-[#0078D4] transition-all duration-300 ease-out"
+              className="h-full rounded-full bg-gradient-to-r from-[var(--chart-1)] via-[var(--chart-2)] to-[var(--chart-4)] transition-all duration-300 ease-out shadow-[0_0_12px_color-mix(in_srgb,var(--primary)_55%,transparent)]"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -76,7 +98,7 @@ export function RunningPanel({
 
         {/* Stop button for monitor mode */}
         {isMonitor && (
-          <div className="flex justify-end mt-4">
+          <div className="flex justify-end mt-4 relative">
             <Button variant="destructive" size="sm" className="rounded-lg" onClick={onStop}>
               Stop Monitor
             </Button>
@@ -85,13 +107,13 @@ export function RunningPanel({
       </div>
 
       {/* Live results table */}
-      <div className="bg-white shadow-sm rounded-xl border border-[#E8E4F0] overflow-hidden">
+      <div className="bg-card shadow-sm rounded-xl border border-[var(--border)] overflow-hidden">
         <div
           ref={scrollRef}
           className="max-h-[60vh] overflow-auto"
         >
           <Table>
-            <TableHeader className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur-sm">
+            <TableHeader className="sticky top-0 z-10 bg-[color-mix(in_srgb,var(--card)_95%,transparent)] backdrop-blur-sm">
               <TableRow className="border-b border-border/60">
                 <TableHead className="font-semibold">Round</TableHead>
                 <TableHead className="font-semibold">Region</TableHead>
@@ -124,11 +146,12 @@ export function RunningPanel({
                       key={idx}
                       className={cn(
                         hasError
-                          ? "bg-red-50/60"
+                          ? "alert-bar bg-[color-mix(in_srgb,var(--error)_10%,transparent)]"
                           : idx % 2 === 0
-                            ? "bg-white"
-                            : "bg-gray-50/50",
-                        "transition-colors hover:bg-[#F3F0F9]/60"
+                            ? "bg-transparent"
+                            : "bg-[var(--secondary)]/40",
+                        "transition-colors hover:bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]",
+                        "animate-in fade-in slide-in-from-top-1 duration-200"
                       )}
                     >
                       <TableCell>{r.round}</TableCell>
@@ -152,16 +175,11 @@ export function RunningPanel({
                       </TableCell>
                       <TableCell>
                         {hasError ? (
-                          <span
-                            className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
-                            title={r.metrics.error!}
-                          >
+                          <span className="status-pill err" title={r.metrics.error!}>
                             Error
                           </span>
                         ) : (
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                            OK
-                          </span>
+                          <span className="status-pill ok">OK</span>
                         )}
                       </TableCell>
                       <TableCell>

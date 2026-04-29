@@ -81,6 +81,9 @@ export interface BenchmarkResult {
   avg_token_gen_ms: number;
   avg_backend_est_ms: number;
   network_probe_ms: number;
+  probe_dns_ms: number;
+  probe_tcp_ms: number;
+  probe_tls_ms: number;
   calls: SingleCallMetrics[];
   cache: CacheTestResult | null;
 }
