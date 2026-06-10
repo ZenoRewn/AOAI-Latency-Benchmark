@@ -13,6 +13,7 @@ COLORS = {
 
 MODELS = {
     "GPT-5.x Series": [
+        "gpt-chat-latest",
         "gpt-5.5", "gpt-5.5-pro",
         "gpt-5.4", "gpt-5.4-pro", "gpt-5.4-mini", "gpt-5.4-nano",
         "gpt-5.3-chat", "gpt-5.3-codex",
@@ -23,19 +24,21 @@ MODELS = {
     "GPT-4.1 Series": ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"],
     "GPT-4o Series": ["gpt-4o", "gpt-4o-mini"],
     "o-Series (Reasoning)": [
-        "o4-mini", "o3-pro", "o3", "o3-mini", "o1", "o1-preview", "o1-mini", "codex-mini",
+        "o4-mini", "o3-pro", "o3", "o3-deep-research", "o3-mini",
+        "o1", "o1-preview", "o1-mini", "codex-mini",
     ],
     "Open Source": ["gpt-oss-120b", "gpt-oss-20b"],
     "Model Router": ["model-router"],
     "Embeddings": ["text-embedding-3-large", "text-embedding-3-small"],
     "Legacy (Deprecated)": ["text-embedding-ada-002"],
-    "Image": ["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini", "dall-e-3"],
+    "Image": ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini", "dall-e-3"],
     "Video": ["sora-2", "sora"],
     "Audio & Speech": [
         "gpt-audio-1.5", "gpt-audio", "gpt-audio-mini",
-        "gpt-realtime-1.5", "gpt-realtime", "gpt-realtime-mini",
+        "gpt-realtime-2", "gpt-realtime-1.5", "gpt-realtime", "gpt-realtime-mini",
+        "gpt-4o-realtime-preview", "gpt-4o-mini-realtime-preview",
         "gpt-4o-audio-preview", "gpt-4o-mini-audio-preview",
-        "gpt-4o-transcribe", "gpt-4o-mini-transcribe",
+        "gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe",
         "gpt-4o-mini-tts", "tts", "tts-hd", "whisper",
     ],
     "Other": ["computer-use-preview"],
