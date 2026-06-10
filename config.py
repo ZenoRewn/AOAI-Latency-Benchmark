@@ -99,8 +99,11 @@ BENCHMARK_PRESETS = {
     },
 }
 
-# These model prefixes use max_completion_tokens instead of max_tokens in Chat API
-MAX_COMPLETION_TOKENS_MODELS = ("o1", "o3", "o4", "gpt-5", "codex-mini", "gpt-oss")
+# These model prefixes use max_completion_tokens instead of max_tokens in Chat API.
+# gpt-chat-latest = GPT-5.5 Instant (OpenAI's `chat-latest`) — same family rule applies.
+MAX_COMPLETION_TOKENS_MODELS = (
+    "o1", "o3", "o4", "gpt-5", "gpt-chat-latest", "codex-mini", "gpt-oss",
+)
 
 # Embedding defaults
 DEFAULT_EMBEDDING_INPUT = "Azure OpenAI latency benchmark test input for embeddings."
