@@ -167,6 +167,10 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
     "aoai-benchmark:testCache.v1",
     false,
   );
+  const [apiSurface, setApiSurface] = usePersistedState<"v1" | "preview">(
+    "aoai-benchmark:apiSurface.v1",
+    "v1",
+  );
   const [apiVersion, setApiVersion] = usePersistedState<string>(
     "aoai-benchmark:apiVersion.v2",
     "2025-04-01-preview",
@@ -177,6 +181,10 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
   // user-tuned settings.
   useEffect(() => {
     if (!appConfig || typeof window === "undefined") return;
+    if (window.localStorage.getItem("aoai-benchmark:apiSurface.v1") === null) {
+      const remote = appConfig.default_api_surface;
+      if (remote === "v1" || remote === "preview") setApiSurface(remote);
+    }
     if (window.localStorage.getItem("aoai-benchmark:apiVersion.v2") === null) {
       setApiVersion(appConfig.default_api_version);
     }
@@ -186,7 +194,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
     if (window.localStorage.getItem("aoai-benchmark:maxTokens.v1") === null) {
       setMaxTokens(appConfig.default_max_tokens);
     }
-  }, [appConfig, setApiVersion, setIterations, setMaxTokens]);
+  }, [appConfig, setApiSurface, setApiVersion, setIterations, setMaxTokens]);
 
   // Auto-flip to Auto Discover the first time the user signs in.
   const [wasSignedIn, setWasSignedIn] = useState(false);
@@ -270,6 +278,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
       user_prompt: userPrompt,
       test_cache: testCache,
       api_key: manualApiKey || null,
+      api_surface: apiSurface,
       api_version: apiVersion,
       reasoning_efforts: Array.from(selectedEfforts),
       reasoning_summary: reasoningSummary || null,
@@ -291,6 +300,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
     systemPrompt,
     userPrompt,
     testCache,
+    apiSurface,
     apiVersion,
     selectedEfforts,
     reasoningSummary,
@@ -877,15 +887,48 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
 
           <Separator />
 
-          {/* -- API Version -- */}
-          <div className="space-y-2">
-            <Label htmlFor="api-version">API Version</Label>
-            <Input
-              id="api-version"
-              value={apiVersion}
-              onChange={(e) => setApiVersion(e.target.value)}
-              className="max-w-xs"
-            />
+          {/* -- API Surface + Version -- */}
+          <div className="space-y-3">
+            <Label>API Surface</Label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setApiSurface("v1")}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  apiSurface === "v1"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                v1 (Recommended)
+              </button>
+              <button
+                type="button"
+                onClick={() => setApiSurface("preview")}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  apiSurface === "preview"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                Preview (dated api-version)
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              v1 routes through <code>/openai/v1/*</code> (GA Aug 2025, no api-version needed).
+              Preview keeps the legacy <code>/openai/deployments/.../?api-version=...</code> path.
+            </p>
+            {apiSurface === "preview" && (
+              <div className="space-y-2 pt-1">
+                <Label htmlFor="api-version">API Version</Label>
+                <Input
+                  id="api-version"
+                  value={apiVersion}
+                  onChange={(e) => setApiVersion(e.target.value)}
+                  className="max-w-xs"
+                />
+              </div>
+            )}
           </div>
 
           {/* -- Prompts -- */}

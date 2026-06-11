@@ -5,7 +5,7 @@ import io
 import logging
 import time
 
-from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
 
 from auth import last_request_id
 from benchmark.metrics import SingleCallMetrics
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run_tts(
-    client: AsyncAzureOpenAI,
+    client: AsyncOpenAI,
     deployment: str,
     input_text: str,
     voice: str,
@@ -53,7 +53,7 @@ async def run_tts(
 
 
 async def run_whisper(
-    client: AsyncAzureOpenAI,
+    client: AsyncOpenAI,
     deployment: str,
     audio_bytes: bytes,
     timeout: int,

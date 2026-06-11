@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import pandas as pd
-from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
 
 from urllib.parse import urlparse
 
@@ -80,7 +80,8 @@ class BenchmarkEngine:
         test_cache = config.get("test_cache", False)
         api_key = config.get("api_key")
         aad_token = config.get("aad_token")
-        api_version = config.get("api_version", "2025-03-01-preview")
+        api_surface = config.get("api_surface", "v1")
+        api_version = config.get("api_version", "2025-04-01-preview")
         reasoning_efforts = config.get("reasoning_efforts", [])
         reasoning_summary = config.get("reasoning_summary")
         streaming = config.get("streaming", True)
@@ -119,7 +120,10 @@ class BenchmarkEngine:
                 warmup_client = None
                 if needs_client:
                     try:
-                        warmup_client = await get_client(endpoint, api_version, api_key, aad_token=aad_token)
+                        warmup_client = await get_client(
+                            endpoint, api_version, api_key,
+                            aad_token=aad_token, api_surface=api_surface,
+                        )
                     except Exception:
                         continue
                 for model in models:
@@ -133,6 +137,7 @@ class BenchmarkEngine:
                                 api_type, warmup_client, model, endpoint,
                                 system_prompt, user_prompt, max_tokens, timeout,
                                 api_key, api_version, 0,
+                                api_surface=api_surface,
                             )
                         except Exception:
                             pass
@@ -171,7 +176,10 @@ class BenchmarkEngine:
                 client = None
                 if needs_client:
                     try:
-                        client = await get_client(endpoint, api_version, api_key, aad_token=aad_token)
+                        client = await get_client(
+                            endpoint, api_version, api_key,
+                            aad_token=aad_token, api_surface=api_surface,
+                        )
                     except Exception as e:
                         yield {
                             "type": "error",
@@ -203,6 +211,7 @@ class BenchmarkEngine:
                                         effort_val, reasoning_summary, streaming,
                                         net_baseline,
                                         aad_token=aad_token,
+                                        api_surface=api_surface,
                                     )
                                 )
                                 task_keys.append((api_type, effort, i))
@@ -302,7 +311,8 @@ class BenchmarkEngine:
         user_prompt = config.get("user_prompt", "Say hello.")
         api_key = config.get("api_key")
         aad_token = config.get("aad_token")
-        api_version = config.get("api_version", "2025-03-01-preview")
+        api_surface = config.get("api_surface", "v1")
+        api_version = config.get("api_version", "2025-04-01-preview")
         reasoning_efforts = config.get("reasoning_efforts", [])
         reasoning_summary = config.get("reasoning_summary")
         streaming = config.get("streaming", True)
@@ -318,7 +328,13 @@ class BenchmarkEngine:
             rn = region_info["name"]
             ep = region_info["endpoint"]
             try:
-                clients[rn] = (await get_client(ep, api_version, api_key, aad_token=aad_token), ep)
+                clients[rn] = (
+                    await get_client(
+                        ep, api_version, api_key,
+                        aad_token=aad_token, api_surface=api_surface,
+                    ),
+                    ep,
+                )
             except Exception as e:
                 yield {"type": "error", "message": f"Auth failed for {rn}: {e}", "region": rn}
 
@@ -357,6 +373,7 @@ class BenchmarkEngine:
                                 api_key, api_version, 1,
                                 effort_val, reasoning_summary, streaming, 0.0,
                                 aad_token=aad_token,
+                                api_surface=api_surface,
                             )
                             result.calls.append(call_metrics)
                             result.compute_aggregates()
@@ -436,6 +453,7 @@ class BenchmarkEngine:
         reasoning_effort=None, reasoning_summary=None,
         streaming=True, network_baseline_ms=0.0,
         aad_token=None,
+        api_surface="v1",
     ):
         if api_type == "responses":
             return await run_responses_api(
@@ -456,6 +474,25 @@ class BenchmarkEngine:
                 timeout, iteration=iteration,
             )
         elif api_type == "whisper":
+            # Azure v1 surface doesn't route /openai/v1/audio/transcriptions yet
+            # (returns DeploymentNotFound for any transcribe deployment as of
+            # 2026-06). Fall back to a preview client just for whisper calls
+            # and tag the metric so the UI can flag it.
+            if api_surface == "v1":
+                fallback_client = await get_client(
+                    endpoint, api_version, api_key,
+                    aad_token=aad_token, api_surface="preview",
+                )
+                try:
+                    m = await run_whisper(
+                        fallback_client, model, WHISPER_TEST_AUDIO,
+                        timeout, iteration=iteration,
+                    )
+                finally:
+                    await fallback_client.close()
+                if m.error is None:
+                    m.notice = "Whisper fell back to preview API surface — Azure v1 does not yet route audio/transcriptions."
+                return m
             return await run_whisper(
                 client, model, WHISPER_TEST_AUDIO, timeout, iteration=iteration,
             )
@@ -469,6 +506,7 @@ class BenchmarkEngine:
                 endpoint, model, api_key, api_version,
                 timeout, iteration=iteration,
                 aad_token=aad_token,
+                api_surface=api_surface,
             )
         else:  # "chat" default
             return await run_chat_completion(

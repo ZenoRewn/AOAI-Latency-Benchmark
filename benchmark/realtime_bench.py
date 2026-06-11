@@ -19,11 +19,12 @@ async def run_realtime(
     timeout: int,
     iteration: int,
     aad_token: str | None = None,
+    api_surface: str = "v1",
 ) -> SingleCallMetrics:
     """Measure Realtime API connection time and TTFT via WebSocket.
 
-    Connects to wss://{host}/openai/realtime, sends a minimal text prompt,
-    and records how long until the first response delta arrives.
+    api_surface == "v1": wss://{host}/openai/v1/realtime?model={deployment}
+    api_surface == "preview": wss://{host}/openai/realtime?api-version=...&deployment=...
     """
     try:
         import websockets
@@ -37,7 +38,12 @@ async def run_realtime(
 
     # Build WebSocket URL
     host = endpoint.rstrip("/").replace("https://", "").replace("http://", "")
-    ws_url = f"wss://{host}/openai/realtime?api-version={api_version}&deployment={deployment}"
+    if api_surface == "v1":
+        ws_url = f"wss://{host}/openai/v1/realtime?model={deployment}"
+        token_scope = "https://ai.azure.com/.default"
+    else:
+        ws_url = f"wss://{host}/openai/realtime?api-version={api_version}&deployment={deployment}"
+        token_scope = "https://cognitiveservices.azure.com/.default"
 
     headers = {}
     if aad_token:
@@ -53,7 +59,7 @@ async def run_realtime(
             from azure.identity import DefaultAzureCredential
             from auth import make_default_credential_kwargs
             credential = DefaultAzureCredential(**make_default_credential_kwargs())
-            token = credential.get_token("https://cognitiveservices.azure.com/.default")
+            token = credential.get_token(token_scope)
             headers["Authorization"] = f"Bearer {token.token}"
         except Exception as e:
             metrics.error = f"Auth failed: {e}"
@@ -67,13 +73,18 @@ async def run_realtime(
             async with websockets.connect(ws_url, additional_headers=headers) as ws:
                 connection_time_ms = (time.perf_counter() - t_connect_start) * 1000
 
-                # Send session.update
+                # Send session.update — v1 GA renamed several session fields
+                session_payload: dict = {
+                    "instructions": "You are a helpful assistant. Be brief.",
+                }
+                if api_surface == "v1":
+                    session_payload["type"] = "realtime"
+                    session_payload["output_modalities"] = ["text"]
+                else:
+                    session_payload["modalities"] = ["text"]
                 await ws.send(json.dumps({
                     "type": "session.update",
-                    "session": {
-                        "modalities": ["text"],
-                        "instructions": "You are a helpful assistant. Be brief.",
-                    },
+                    "session": session_payload,
                 }))
 
                 # Send conversation item

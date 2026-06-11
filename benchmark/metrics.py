@@ -34,6 +34,7 @@ class SingleCallMetrics:
     queue_wait_ms: Optional[float] = None   # Semaphore wait (client-side queuing)
     error: Optional[str] = None
     error_category: Optional[str] = None    # "timeout"|"auth"|"rate_limit"|"server_error"|"network"|"client_error"|"other"
+    notice: Optional[str] = None            # Non-error info (e.g. "fell back to preview surface")
 
     def to_dict(self) -> dict:
         return asdict(self)

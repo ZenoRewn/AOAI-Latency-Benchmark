@@ -4,7 +4,7 @@ import time
 import logging
 import asyncio
 
-from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
 
 from auth import last_request_id
 from benchmark.metrics import SingleCallMetrics
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run_responses_api(
-    client: AsyncAzureOpenAI,
+    client: AsyncOpenAI,
     model: str,
     instructions: str,
     input_text: str,

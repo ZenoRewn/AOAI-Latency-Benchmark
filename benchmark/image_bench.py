@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 
-from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
 
 from auth import last_request_id
 from benchmark.metrics import SingleCallMetrics
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run_image_generation(
-    client: AsyncAzureOpenAI,
+    client: AsyncOpenAI,
     deployment: str,
     prompt: str,
     size: str,

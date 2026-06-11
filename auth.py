@@ -19,7 +19,7 @@ import time
 import logging
 
 import httpx
-from openai import AsyncAzureOpenAI
+from openai import AsyncAzureOpenAI, AsyncOpenAI
 
 from azure.core.credentials import AccessToken
 from azure.core.credentials_async import AsyncTokenCredential
@@ -28,7 +28,10 @@ from benchmark.network_timing import TimingTransport
 
 logger = logging.getLogger(__name__)
 
+# Preview path (/openai/deployments/.../?api-version=...) keeps the legacy scope.
 TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
+# v1 GA path (/openai/v1/...) uses the new ai.azure.com scope.
+V1_TOKEN_SCOPE = "https://ai.azure.com/.default"
 
 
 class BearerTokenAsyncCredential(AsyncTokenCredential):
@@ -163,29 +166,94 @@ async def detect_auth_method() -> dict:
     return {"method": "none", "detail": "No credentials detected. Please provide API key manually."}
 
 
+def _new_http_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=TimingTransport(),
+        event_hooks={"response": [_capture_request_id]},
+    )
+
+
+def _v1_base_url(endpoint: str) -> str:
+    return endpoint.rstrip("/") + "/openai/v1/"
+
+
 async def get_client(
     endpoint: str,
     api_version: str,
     api_key: str | None = None,
     aad_token: str | None = None,
-) -> AsyncAzureOpenAI:
-    """Create an AsyncAzureOpenAI client with the best available auth.
+    api_surface: str = "v1",
+) -> AsyncAzureOpenAI | AsyncOpenAI:
+    """Create an Azure OpenAI client with the best available auth.
 
-    Priority:
+    `api_surface`:
+    - "v1"      → AsyncOpenAI(base_url=".../openai/v1/")  -- new GA path
+    - "preview" → AsyncAzureOpenAI(api_version=...)        -- legacy dated path
+
+    Auth priority (same for both surfaces):
     0. Per-user AAD bearer token (from browser MSAL.js)
     1. Explicit api_key parameter
     2. DefaultAzureCredential (az login / Workload Identity / Managed Identity)
     3. AZURE_OPENAI_API_KEY environment variable
     """
-    http_client = httpx.AsyncClient(
-        transport=TimingTransport(),
-        event_hooks={"response": [_capture_request_id]},
+    if api_surface == "v1":
+        return await _make_v1_client(endpoint, api_key, aad_token)
+    return await _make_preview_client(endpoint, api_version, api_key, aad_token)
+
+
+async def _make_v1_client(
+    endpoint: str,
+    api_key: str | None,
+    aad_token: str | None,
+) -> AsyncOpenAI:
+    """v1 GA: AsyncOpenAI client pointed at /openai/v1/."""
+    http_client = _new_http_client()
+    base_url = _v1_base_url(endpoint)
+
+    # 0. Per-user AAD bearer token. OpenAI SDK sends Authorization: Bearer {key};
+    # Azure OpenAI v1 GA accepts that for both API keys and AAD tokens.
+    if aad_token:
+        return AsyncOpenAI(base_url=base_url, api_key=aad_token, http_client=http_client)
+
+    # 1. Explicit API key
+    if api_key:
+        return AsyncOpenAI(base_url=base_url, api_key=api_key, http_client=http_client)
+
+    # 2. DefaultAzureCredential — pass token_provider as api_key (callable),
+    # OpenAI SDK supports auto-refresh from a callable per Azure v1 docs.
+    try:
+        from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
+
+        credential = DefaultAzureCredential(**make_default_credential_kwargs())
+        token_provider = get_bearer_token_provider(credential, V1_TOKEN_SCOPE)
+        return AsyncOpenAI(
+            base_url=base_url,
+            api_key=token_provider,  # type: ignore[arg-type]
+            http_client=http_client,
+        )
+    except Exception as e:
+        logger.debug(f"DefaultAzureCredential client creation failed: {e}")
+
+    # 3. Environment variable
+    env_key = os.environ.get("AZURE_OPENAI_API_KEY")
+    if env_key:
+        return AsyncOpenAI(base_url=base_url, api_key=env_key, http_client=http_client)
+
+    raise ValueError(
+        "No authentication available. Provide an API key, set AZURE_OPENAI_API_KEY, "
+        "or login with 'az login' / attach a Managed Identity."
     )
 
-    # 0. Per-user AAD bearer token from the frontend MSAL.js flow.
-    # The token has already been acquired against the Azure OpenAI scope,
-    # so we hand it to the SDK verbatim. Tokens are short-lived (~1h);
-    # a benchmark run longer than that should re-acquire in the browser.
+
+async def _make_preview_client(
+    endpoint: str,
+    api_version: str,
+    api_key: str | None,
+    aad_token: str | None,
+) -> AsyncAzureOpenAI:
+    """Legacy preview path: AsyncAzureOpenAI with dated api-version."""
+    http_client = _new_http_client()
+
     if aad_token:
         return AsyncAzureOpenAI(
             azure_endpoint=endpoint,
@@ -194,7 +262,6 @@ async def get_client(
             http_client=http_client,
         )
 
-    # 1. Explicit API key
     if api_key:
         return AsyncAzureOpenAI(
             azure_endpoint=endpoint,
@@ -203,7 +270,6 @@ async def get_client(
             http_client=http_client,
         )
 
-    # 2. DefaultAzureCredential
     try:
         from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 
@@ -218,7 +284,6 @@ async def get_client(
     except Exception as e:
         logger.debug(f"DefaultAzureCredential client creation failed: {e}")
 
-    # 3. Environment variable
     env_key = os.environ.get("AZURE_OPENAI_API_KEY")
     if env_key:
         return AsyncAzureOpenAI(

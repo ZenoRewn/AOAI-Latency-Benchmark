@@ -2,7 +2,7 @@
 
 import logging
 
-from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
 
 from config import CACHE_TEST_SYSTEM_PROMPT, DEFAULT_USER_PROMPT
 from benchmark.metrics import CacheTestResult
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run_cache_test(
-    client: AsyncAzureOpenAI,
+    client: AsyncOpenAI,
     deployment: str,
     api_type: str,
     max_tokens: int,

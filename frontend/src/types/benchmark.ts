@@ -15,6 +15,7 @@ export interface BenchmarkConfig {
   user_prompt: string;
   test_cache: boolean;
   api_key: string | null;
+  api_surface: "v1" | "preview";
   api_version: string;
   reasoning_efforts: string[];
   reasoning_summary: string | null;
@@ -42,6 +43,7 @@ export interface SingleCallMetrics {
   token_gen_ms: number | null;
   backend_est_ms: number | null;
   error: string | null;
+  notice?: string | null;
 }
 
 export interface CacheTestResult {
@@ -114,6 +116,7 @@ export interface AuthStatus {
 
 export interface AppConfig {
   models: Record<string, string[]>;
+  default_api_surface: string;
   default_api_version: string;
   default_iterations: number;
   default_max_tokens: number;

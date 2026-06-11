@@ -57,6 +57,7 @@ AOAI_Latency_Benchmark/
 ├── scripts/
 │   ├── run-dev.sh          # Local dev: FastAPI + next dev with proxied /api (recommended)
 │   ├── run-local.sh        # Local Docker: single image with az login mounted
+│   ├── smoke_test_v1.py    # CLI smoke-tester for all api_types on v1/preview surfaces
 │   └── build-and-deploy.sh # Optional helper for image build + AKS rollout
 └── k8s/                    # Kustomize manifests for AKS deploy
 ```
@@ -148,9 +149,41 @@ Open **http://127.0.0.1:8088**.
   "reasoning_summary": "auto",
   "test_cache": false,
   "api_key": null,
-  "api_version": "2025-03-01-preview"
+  "api_surface": "v1",
+  "api_version": "2025-04-01-preview"
 }
 ```
+
+### API Surface: `v1` vs `preview`
+
+`api_surface` controls which Azure OpenAI URL family the benchmark targets:
+
+| Surface | Path shape | When used |
+|---------|------------|-----------|
+| `v1` (default) | `/openai/v1/{chat|responses|embeddings|images|audio|realtime}` — model name in body, no `api-version` query | Azure OpenAI v1 GA (Aug 2025+). New surface; recommended by Microsoft going forward. |
+| `preview` | `/openai/deployments/{deployment}/...?api-version=YYYY-MM-DD-preview` | Legacy dated surface. Some routes (notably `audio/transcriptions`) are not yet served on v1, so this is the fallback. |
+
+The UI exposes a **API Surface** toggle next to the API Version field. When `v1` is selected the API Version input is hidden; selecting `preview` reveals it.
+
+**Automatic fallback:** Whisper / `audio.transcriptions` calls automatically fall back to a preview-surface client when the user picked `v1` (Azure does not yet route transcriptions on v1). The result row gets a small ⓘ note in the UI; the call itself still succeeds and is timed.
+
+**Smoke test script** — `scripts/smoke_test_v1.py` exercises every `api_type` against a real resource:
+
+```bash
+export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com
+export AZURE_OPENAI_API_KEY=...
+
+python scripts/smoke_test_v1.py \
+    --endpoint "$AZURE_OPENAI_ENDPOINT" \
+    --api-key "$AZURE_OPENAI_API_KEY" \
+    --surface v1 \
+    --chat gpt-4o-mini --responses gpt-5-mini \
+    --embeddings text-embedding-3-small \
+    --image gpt-image-1 --tts gpt-4o-mini-tts \
+    --whisper whisper --realtime gpt-realtime
+```
+
+Pass `--surface preview` to verify the legacy path. Pass per-`api_type` flags only for deployments that exist on your resource. Exit code `0` = all pass.
 
 ## Metrics Collected
 

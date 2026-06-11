@@ -19,8 +19,8 @@ from auth import (
 )
 from benchmark.engine import BenchmarkEngine
 from config import (
-    MODELS, DEFAULT_API_VERSION, DEFAULT_ITERATIONS, DEFAULT_MAX_TOKENS,
-    BENCHMARK_PRESETS,
+    MODELS, DEFAULT_API_VERSION, DEFAULT_API_SURFACE, DEFAULT_ITERATIONS,
+    DEFAULT_MAX_TOKENS, BENCHMARK_PRESETS,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,8 @@ class BenchmarkConfig(BaseModel):
     user_prompt: str = "Explain the concept of cloud computing in a few sentences."
     test_cache: bool = False
     api_key: str | None = None
-    api_version: str = "2025-03-01-preview"
+    api_surface: str = DEFAULT_API_SURFACE  # "v1" | "preview"
+    api_version: str = DEFAULT_API_VERSION  # only used when api_surface == "preview"
     reasoning_efforts: list[str] = []   # ["", "low", "medium", "high"]
     reasoning_summary: str | None = None
     streaming: bool = True
@@ -63,6 +64,7 @@ class BenchmarkConfig(BaseModel):
 async def get_config():
     return {
         "models": MODELS,
+        "default_api_surface": DEFAULT_API_SURFACE,
         "default_api_version": DEFAULT_API_VERSION,
         "default_iterations": DEFAULT_ITERATIONS,
         "default_max_tokens": DEFAULT_MAX_TOKENS,

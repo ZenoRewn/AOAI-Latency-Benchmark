@@ -45,6 +45,9 @@ MODELS = {
 }
 
 DEFAULT_API_VERSION = "2025-04-01-preview"
+# "v1" routes through /openai/v1/* (Azure OpenAI v1 GA, Aug 2025).
+# "preview" keeps the dated /openai/deployments/.../?api-version=... path.
+DEFAULT_API_SURFACE = "v1"
 DEFAULT_ITERATIONS = 3
 DEFAULT_MAX_TOKENS = 100
 DEFAULT_TIMEOUT = 30

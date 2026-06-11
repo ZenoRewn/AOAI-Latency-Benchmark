@@ -4,7 +4,7 @@ import time
 import logging
 import asyncio
 
-from openai import AsyncAzureOpenAI
+from openai import AsyncOpenAI
 
 from auth import last_request_id
 from config import MAX_COMPLETION_TOKENS_MODELS
@@ -20,7 +20,7 @@ def _needs_max_completion_tokens(model: str) -> bool:
 
 
 async def run_chat_completion(
-    client: AsyncAzureOpenAI,
+    client: AsyncOpenAI,
     deployment: str,
     system_prompt: str,
     user_prompt: str,

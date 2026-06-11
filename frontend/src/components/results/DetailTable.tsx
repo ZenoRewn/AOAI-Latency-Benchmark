@@ -136,7 +136,21 @@ export function DetailTable({ results }: DetailTableProps) {
                 <TableCell className="max-w-[140px] truncate">
                   {r.model}
                 </TableCell>
-                <TableCell>{r.api_type}</TableCell>
+                <TableCell>
+                  {r.api_type}
+                  {(() => {
+                    const notice = r.calls?.find((c) => c.notice)?.notice;
+                    return notice ? (
+                      <span
+                        className="ml-1 cursor-help text-amber-600"
+                        title={notice}
+                        aria-label={notice}
+                      >
+                        ⓘ
+                      </span>
+                    ) : null;
+                  })()}
+                </TableCell>
                 <TableCell>{r.reasoning_effort || "-"}</TableCell>
                 <TableCell className="text-right tabular-nums">
                   {fmtVal(r.avg_ttfb_ms)}
