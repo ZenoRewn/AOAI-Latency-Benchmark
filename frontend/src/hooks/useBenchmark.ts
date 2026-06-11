@@ -29,9 +29,11 @@ interface UseBenchmarkReturn {
   runId: string | null;
   error: string | null;
   isMonitor: boolean;
+  lastConfig: BenchmarkConfig | null;
   start: (config: BenchmarkConfig) => Promise<void>;
   stop: () => Promise<void>;
   reset: () => void;
+  rerun: () => void;
 }
 
 export function useBenchmark(): UseBenchmarkReturn {
@@ -47,6 +49,7 @@ export function useBenchmark(): UseBenchmarkReturn {
   const [runId, setRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isMonitor, setIsMonitor] = useState(false);
+  const [lastConfig, setLastConfig] = useState<BenchmarkConfig | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -184,6 +187,7 @@ export function useBenchmark(): UseBenchmarkReturn {
       setProbes({});
       setProgress({ current: 0, total: 0, message: "Starting..." });
       setIsMonitor(config.mode === "monitor");
+      setLastConfig(config);
 
       try {
         const { run_id } = await apiPost<{ run_id: string }>(
@@ -222,7 +226,13 @@ export function useBenchmark(): UseBenchmarkReturn {
     setProbes({});
     setRunId(null);
     setError(null);
+    // Intentionally keep lastConfig — re-entering config phase still allows
+    // a future Re-run if the user navigates back via results elsewhere.
   }, [cleanup]);
+
+  const rerun = useCallback(() => {
+    if (lastConfig) start(lastConfig);
+  }, [lastConfig, start]);
 
   return {
     phase,
@@ -233,8 +243,10 @@ export function useBenchmark(): UseBenchmarkReturn {
     runId,
     error,
     isMonitor,
+    lastConfig,
     start,
     stop,
     reset,
+    rerun,
   };
 }

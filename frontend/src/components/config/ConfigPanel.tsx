@@ -6,7 +6,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useDiscovery } from "@/hooks/useDiscovery";
 import { useMsal } from "@/hooks/useMsal";
 import { usePersistedState } from "@/hooks/usePersistedState";
+import { usePersistedSet } from "@/hooks/usePersistedSet";
 import { AppRegConfigDialog } from "@/components/auth/AppRegConfig";
+import { PromptScenarios } from "@/components/config/PromptScenarios";
 import { getActiveConfig } from "@/lib/msal";
 import {
   API_TYPE_OPTIONS,
@@ -97,43 +99,94 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
   const [appRegOpen, setAppRegOpen] = useState(false);
 
   // ---- model state ----
-  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
+  // Persisted across sessions so prior selection is restored on reload / New Test.
+  const [selectedModels, setSelectedModels] = usePersistedSet(
+    "aoai-benchmark:selectedModels.v1",
+    new Set(),
+  );
   const [customModel, setCustomModel] = useState("");
 
-  // ---- test params ----
-  const [mode, setMode] = useState<"benchmark" | "monitor">("benchmark");
-  const [monitorInterval, setMonitorInterval] = useState(60);
-  const [monitorDuration, setMonitorDuration] = useState(3600);
-  const [selectedApiTypes, setSelectedApiTypes] = useState<Set<string>>(
-    new Set(["chat"])
+  // ---- test params (persisted) ----
+  const [mode, setMode] = usePersistedState<"benchmark" | "monitor">(
+    "aoai-benchmark:mode.v1",
+    "benchmark",
   );
-  const [iterations, setIterations] = useState(5);
-  const [rounds, setRounds] = useState(1);
-  const [concurrency, setConcurrency] = useState(1);
-  const [maxTokens, setMaxTokens] = useState(100);
-  const [selectedEfforts, setSelectedEfforts] = useState<Set<string>>(
-    new Set([""])
+  const [monitorInterval, setMonitorInterval] = usePersistedState<number>(
+    "aoai-benchmark:monitorInterval.v1",
+    60,
   );
-  const [reasoningSummary, setReasoningSummary] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState(
-    "You are a helpful assistant."
+  const [monitorDuration, setMonitorDuration] = usePersistedState<number>(
+    "aoai-benchmark:monitorDuration.v1",
+    3600,
   );
-  const [userPrompt, setUserPrompt] = useState(
-    "Write a short paragraph about cloud computing."
+  const [selectedApiTypes, setSelectedApiTypes] = usePersistedSet(
+    "aoai-benchmark:selectedApiTypes.v1",
+    new Set(["chat"]),
   );
-  const [streaming, setStreaming] = useState(true);
-  const [warmup, setWarmup] = useState(true);
-  const [testCache, setTestCache] = useState(false);
-  const [apiVersion, setApiVersion] = useState("2024-12-01-preview");
+  const [iterations, setIterations] = usePersistedState<number>(
+    "aoai-benchmark:iterations.v1",
+    5,
+  );
+  const [rounds, setRounds] = usePersistedState<number>(
+    "aoai-benchmark:rounds.v1",
+    1,
+  );
+  const [concurrency, setConcurrency] = usePersistedState<number>(
+    "aoai-benchmark:concurrency.v1",
+    1,
+  );
+  const [maxTokens, setMaxTokens] = usePersistedState<number>(
+    "aoai-benchmark:maxTokens.v1",
+    100,
+  );
+  const [selectedEfforts, setSelectedEfforts] = usePersistedSet(
+    "aoai-benchmark:selectedEfforts.v1",
+    new Set([""]),
+  );
+  const [reasoningSummary, setReasoningSummary] = usePersistedState<string>(
+    "aoai-benchmark:reasoningSummary.v1",
+    "",
+  );
+  const [systemPrompt, setSystemPrompt] = usePersistedState<string>(
+    "aoai-benchmark:systemPrompt.v1",
+    "You are a helpful assistant.",
+  );
+  const [userPrompt, setUserPrompt] = usePersistedState<string>(
+    "aoai-benchmark:userPrompt.v1",
+    "Write a short paragraph about cloud computing.",
+  );
+  const [streaming, setStreaming] = usePersistedState<boolean>(
+    "aoai-benchmark:streaming.v1",
+    true,
+  );
+  const [warmup, setWarmup] = usePersistedState<boolean>(
+    "aoai-benchmark:warmup.v1",
+    true,
+  );
+  const [testCache, setTestCache] = usePersistedState<boolean>(
+    "aoai-benchmark:testCache.v1",
+    false,
+  );
+  const [apiVersion, setApiVersion] = usePersistedState<string>(
+    "aoai-benchmark:apiVersion.v2",
+    "2025-04-01-preview",
+  );
 
-  // Apply remote defaults when config loads (React-recommended pattern)
-  const [prevAppConfig, setPrevAppConfig] = useState<AppConfig | null>(null);
-  if (appConfig && appConfig !== prevAppConfig) {
-    setPrevAppConfig(appConfig);
-    setApiVersion(appConfig.default_api_version);
-    setIterations(appConfig.default_iterations);
-    setMaxTokens(appConfig.default_max_tokens);
-  }
+  // Apply remote defaults only when the user has no persisted value yet.
+  // Persisted values must win over server defaults so reloads don't clobber
+  // user-tuned settings.
+  useEffect(() => {
+    if (!appConfig || typeof window === "undefined") return;
+    if (window.localStorage.getItem("aoai-benchmark:apiVersion.v2") === null) {
+      setApiVersion(appConfig.default_api_version);
+    }
+    if (window.localStorage.getItem("aoai-benchmark:iterations.v1") === null) {
+      setIterations(appConfig.default_iterations);
+    }
+    if (window.localStorage.getItem("aoai-benchmark:maxTokens.v1") === null) {
+      setMaxTokens(appConfig.default_max_tokens);
+    }
+  }, [appConfig, setApiVersion, setIterations, setMaxTokens]);
 
   // Auto-flip to Auto Discover the first time the user signs in.
   const [wasSignedIn, setWasSignedIn] = useState(false);
@@ -200,7 +253,7 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
     if (!m) return;
     setSelectedModels((prev) => new Set(prev).add(m));
     setCustomModel("");
-  }, [customModel]);
+  }, [customModel, setSelectedModels]);
 
   // ---------- submit ----------
 
@@ -836,6 +889,14 @@ export function ConfigPanel({ onStart }: ConfigPanelProps) {
           </div>
 
           {/* -- Prompts -- */}
+          <PromptScenarios
+            currentSystem={systemPrompt}
+            currentUser={userPrompt}
+            onLoad={(s, u) => {
+              setSystemPrompt(s);
+              setUserPrompt(u);
+            }}
+          />
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="system-prompt">System Prompt</Label>

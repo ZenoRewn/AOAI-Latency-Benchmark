@@ -44,7 +44,7 @@ MODELS = {
     "Other": ["computer-use-preview"],
 }
 
-DEFAULT_API_VERSION = "2025-03-01-preview"
+DEFAULT_API_VERSION = "2025-04-01-preview"
 DEFAULT_ITERATIONS = 3
 DEFAULT_MAX_TOKENS = 100
 DEFAULT_TIMEOUT = 30

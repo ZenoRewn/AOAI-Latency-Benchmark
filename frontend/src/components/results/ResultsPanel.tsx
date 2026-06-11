@@ -18,6 +18,7 @@ interface ResultsPanelProps {
   results: BenchmarkResult[];
   runId: string | null;
   onNewTest?: () => void;
+  onRerun?: () => void;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -85,7 +86,7 @@ function resultsToCsv(results: BenchmarkResult[]): string {
   return [headers.join(","), ...rows].join("\n");
 }
 
-export function ResultsPanel({ results, runId, onNewTest }: ResultsPanelProps) {
+export function ResultsPanel({ results, runId, onNewTest, onRerun }: ResultsPanelProps) {
   const handleExportCsv = useCallback(() => {
     const csv = resultsToCsv(results);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -165,6 +166,11 @@ export function ResultsPanel({ results, runId, onNewTest }: ResultsPanelProps) {
         <Button variant="outline" size="sm" onClick={handleExportExcel}>
           Export Excel
         </Button>
+        {onRerun && (
+          <Button variant="outline" size="sm" onClick={onRerun}>
+            Re-run This Test
+          </Button>
+        )}
         {onNewTest && (
           <Button variant="default" size="sm" onClick={onNewTest}>
             New Test

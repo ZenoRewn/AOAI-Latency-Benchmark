@@ -119,6 +119,14 @@ export interface AppConfig {
   default_max_tokens: number;
 }
 
+export interface PromptScenario {
+  id: string;
+  name: string;
+  system: string;
+  user: string;
+  createdAt: number;
+}
+
 // SSE event types
 export interface SSEStarted {
   type: "started";

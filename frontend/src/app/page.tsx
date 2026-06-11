@@ -56,6 +56,7 @@ export default function Home() {
             results={benchmark.finalResults}
             runId={benchmark.runId}
             onNewTest={benchmark.reset}
+            onRerun={benchmark.lastConfig ? benchmark.rerun : undefined}
           />
         )}
       </main>
